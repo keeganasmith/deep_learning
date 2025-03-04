@@ -5,7 +5,7 @@ import shutil, pathlib
 from tensorflow.keras.utils import image_dataset_from_directory
 from tensorflow import keras
 from tensorflow.keras import layers
-
+import numpy as np
 
 def fetch_data():
     # Define dataset path and expected file name
@@ -112,9 +112,55 @@ def train_model():
 
 def pretrained_model():
     train_dataset, validation_dataset, test_dataset, data_augmentation = preprocess_data()
+    conv_base = keras.applications.vgg16.VGG16(
+        weights="imagenet",
+        include_top=False,
+        input_shape=(180, 180, 3))
+    conv_base.trainable = False
+    def get_features_and_labels(dataset):
+        all_features = []
+        all_labels = []
+        for images, labels in dataset:
+            preprocessed_images = keras.applications.vgg16.preprocess_input(images)
+            features = conv_base.predict(preprocessed_images)
+            all_features.append(features)
+            all_labels.append(labels)
+        return np.concatenate(all_features), np.concatenate(all_labels)
+    train_features, train_labels =  get_features_and_labels(train_dataset)
+    val_features, val_labels =  get_features_and_labels(validation_dataset)
+    test_features, test_labels =  get_features_and_labels(test_dataset)
+    
+    inputs = keras.Input(shape=(180, 180, 3))
+    x = data_augmentation(inputs)
+    x = keras.applications.vgg16.preprocess_input(x)
+    x = conv_base(x)
+    x = layers.Flatten()(x)
+    x = layers.Dense(256)(x)
+    x = layers.Dropout(0.5)(x)
+    outputs = layers.Dense(1, activation="sigmoid")(x)
+    model = keras.Model(inputs, outputs)
+    model.compile(loss="binary_crossentropy",
+                optimizer="rmsprop",
+                metrics=["accuracy"])
+
+    callbacks = [
+    keras.callbacks.ModelCheckpoint(
+        filepath="feature_extraction_with_data_augmentation.keras",
+        save_best_only=True,
+        monitor="val_loss")
+    ]
+    history = model.fit(
+        train_dataset,
+        epochs=50,
+        validation_data=validation_dataset,
+        callbacks=callbacks)
+    test_model = keras.models.load_model(
+    "feature_extraction_with_data_augmentation.keras")
+    test_loss, test_acc = test_model.evaluate(test_dataset)
+    print(f"Test accuracy: {test_acc:.3f}")
 
 def main():
-    train_model()
+    pretrained_model()
 
 if __name__ == "__main__":
     main()
