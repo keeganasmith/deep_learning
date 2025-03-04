@@ -147,15 +147,16 @@ def pretrained_model():
             include_top=False,
             input_shape=(180, 180, 3))
         conv_base.trainable = False
+        for layer in conv_base.layers[30:]:  # only train last layers
+            layer.trainable = True
         inputs = keras.Input(shape=(180, 180, 3))
         x = data_augmentation(inputs)
         x = keras.applications.vgg16.preprocess_input(x)
         x = conv_base(x)
         x = layers.Flatten()(x)
-        x = layers.Dense(512)(x)
-        x = layers.Dropout(0.5)(x)
         x = layers.Dense(256)(x)
-        x = layers.Dropout(.5)(x)
+        x = layers.Dropout(0.5)(x)
+        
         outputs = layers.Dense(1, activation="sigmoid")(x)
         model = keras.Model(inputs, outputs)
         model.compile(loss="binary_crossentropy",
@@ -191,6 +192,6 @@ I decided to use ConvNeXtXLarge because it had the highest accuracy on imagenet 
 Initially I ran with a learning rate of .001 with 50 epochs, however this learning rate was way too high since the model peaked at epoch 1. 
 I increased the number of epochs to 100 and decreased the learning rate by a factor of 10 until it appeared that the model wasn't converging within the first 10 epochs. This is how I ended up with a learning rate of 10^{-7}
 I then ran the model for 100 epochs at a learning rate of 10^-7
-I noticed that the training accuracy stopped increasing at around 90%, which indicated that I didn't have enough parameters to learn from the pretrained model. 
-So I quadrupled the number of params in the first dense layer after the pretrained model, and added another dense layer. 
+I noticed that the training accuracy stopped increasing at around 95% with validation accuracy >= training accuracty, which indicated that I didn't have enough parameters to learn from the pretrained model. 
+So I doubled the number of params in the first dense layer after the pretrained model, and added another dense layer. 
 """
