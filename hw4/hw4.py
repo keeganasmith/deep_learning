@@ -155,7 +155,7 @@ def pretrained_model():
     outputs = layers.Dense(1, activation="sigmoid")(x)
     model = keras.Model(inputs, outputs)
     model.compile(loss="binary_crossentropy",
-                optimizer="rmsprop",
+                optimizer=keras.optimizers.RMSprop(learning_rate=1e-6),
                 metrics=["accuracy"])
 
     callbacks = [
@@ -166,7 +166,7 @@ def pretrained_model():
     ]
     history = model.fit(
         train_dataset,
-        epochs=50,
+        epochs=100,
         validation_data=validation_dataset,
         callbacks=callbacks)
     test_model = keras.models.load_model(
