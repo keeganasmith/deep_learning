@@ -1,0 +1,19 @@
+#!/bin/bash
+#SBATCH --job-name=CSCE636
+#SBATCH --time=24:00:00
+#SBATCH --ntasks=192
+#SBATCH --cpus-per-task=1
+#SBATCH --nodes=1
+#SBATCH --mem=371G
+#SBATCH --output=out
+#SBATCH --error=error
+#SBATCH  --partition=gpu --gres=gpu:a30:2
+
+module purge
+module load WebProxy 
+
+cd $SCRATCH/CSCE636/
+source modules.sh
+source venv/bin/activate
+cd hw4
+python3 hw4.py
