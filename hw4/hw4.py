@@ -6,6 +6,33 @@ from tensorflow.keras.utils import image_dataset_from_directory
 from tensorflow import keras
 from tensorflow.keras import layers
 import numpy as np
+import matplotlib.pyplot as plt
+
+def graph_history(history, save_path="training_history"):
+    acc = history.history["accuracy"]
+    val_acc = history.history["val_accuracy"]
+    loss = history.history["loss"]
+    val_loss = history.history["val_loss"]
+    epochs = range(1, len(acc) + 1)
+
+    # Plot Accuracy
+    plt.figure()
+    plt.plot(epochs, acc, "bo", label="Training accuracy")
+    plt.plot(epochs, val_acc, "b", label="Validation accuracy")
+    plt.title("Training and Validation Accuracy")
+    plt.xlabel("Epochs")
+    plt.ylabel("Accuracy")
+    plt.legend()
+    plt.savefig(f"{save_path}_accuracy.png")  
+    # Plot Loss
+    plt.figure()
+    plt.plot(epochs, loss, "bo", label="Training loss")
+    plt.plot(epochs, val_loss, "b", label="Validation loss")
+    plt.title("Training and Validation Loss")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.savefig(f"{save_path}_loss.png")
 
 def fetch_data():
     # Define dataset path and expected file name
@@ -118,19 +145,6 @@ def pretrained_model():
         include_top=False,
         input_shape=(180, 180, 3))
     conv_base.trainable = False
-    def get_features_and_labels(dataset):
-        all_features = []
-        all_labels = []
-        for images, labels in dataset:
-            preprocessed_images = keras.applications.vgg16.preprocess_input(images)
-            features = conv_base.predict(preprocessed_images)
-            all_features.append(features)
-            all_labels.append(labels)
-        return np.concatenate(all_features), np.concatenate(all_labels)
-    train_features, train_labels =  get_features_and_labels(train_dataset)
-    val_features, val_labels =  get_features_and_labels(validation_dataset)
-    test_features, test_labels =  get_features_and_labels(test_dataset)
-    
     inputs = keras.Input(shape=(180, 180, 3))
     x = data_augmentation(inputs)
     x = keras.applications.vgg16.preprocess_input(x)
@@ -159,6 +173,7 @@ def pretrained_model():
     "feature_extraction_with_data_augmentation.keras")
     test_loss, test_acc = test_model.evaluate(test_dataset)
     print(f"Test accuracy: {test_acc:.3f}")
+    graph_history(history)
 
 def main():
     pretrained_model()
