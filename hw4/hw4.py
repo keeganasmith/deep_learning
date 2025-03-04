@@ -140,7 +140,7 @@ def train_model():
 
 def pretrained_model():
     train_dataset, validation_dataset, test_dataset, data_augmentation = preprocess_data()
-    conv_base = keras.applications.vgg16.VGG16(
+    conv_base = keras.applications.convnext.ConvNeXtXlarge(
         weights="imagenet",
         include_top=False,
         input_shape=(180, 180, 3))
