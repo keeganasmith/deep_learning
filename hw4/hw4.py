@@ -7,7 +7,7 @@ from tensorflow import keras
 from tensorflow.keras import layers
 import numpy as np
 import matplotlib.pyplot as plt
-
+import tensorflow as tf
 def graph_history(history, save_path="training_history"):
     acc = history.history["accuracy"]
     val_acc = history.history["val_accuracy"]
@@ -140,23 +140,25 @@ def train_model():
 
 def pretrained_model():
     train_dataset, validation_dataset, test_dataset, data_augmentation = preprocess_data()
-    conv_base = keras.applications.convnext.ConvNeXtXLarge(
-        weights="imagenet",
-        include_top=False,
-        input_shape=(180, 180, 3))
-    conv_base.trainable = False
-    inputs = keras.Input(shape=(180, 180, 3))
-    x = data_augmentation(inputs)
-    x = keras.applications.vgg16.preprocess_input(x)
-    x = conv_base(x)
-    x = layers.Flatten()(x)
-    x = layers.Dense(256)(x)
-    x = layers.Dropout(0.5)(x)
-    outputs = layers.Dense(1, activation="sigmoid")(x)
-    model = keras.Model(inputs, outputs)
-    model.compile(loss="binary_crossentropy",
-                optimizer=keras.optimizers.RMSprop(learning_rate=1e-6),
-                metrics=["accuracy"])
+    strategy = tf.distribute.MirroredStrategy()
+    with strategy.scope():
+        conv_base = keras.applications.convnext.ConvNeXtXLarge(
+            weights="imagenet",
+            include_top=False,
+            input_shape=(180, 180, 3))
+        conv_base.trainable = False
+        inputs = keras.Input(shape=(180, 180, 3))
+        x = data_augmentation(inputs)
+        x = keras.applications.vgg16.preprocess_input(x)
+        x = conv_base(x)
+        x = layers.Flatten()(x)
+        x = layers.Dense(256)(x)
+        x = layers.Dropout(0.5)(x)
+        outputs = layers.Dense(1, activation="sigmoid")(x)
+        model = keras.Model(inputs, outputs)
+        model.compile(loss="binary_crossentropy",
+                    optimizer=keras.optimizers.RMSprop(learning_rate=1e-6),
+                    metrics=["accuracy"])
 
     callbacks = [
     keras.callbacks.ModelCheckpoint(
