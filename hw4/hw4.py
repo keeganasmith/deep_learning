@@ -147,7 +147,10 @@ def pretrained_model():
             include_top=False,
             input_shape=(180, 180, 3))
         conv_base.trainable = False
-        for layer in conv_base.layers[30:]:  # only train last layers
+        print("ConvNext has ", len(conv_base.layers), " layers")
+        percentage_of_layers_to_train = .2
+        start_index = len(conv_base.layers) * (1 - percentage_of_layers_to_train)
+        for layer in conv_base.layers[start_index:]:  # only train last layers
             layer.trainable = True
         inputs = keras.Input(shape=(180, 180, 3))
         x = data_augmentation(inputs)
@@ -194,4 +197,5 @@ I increased the number of epochs to 100 and decreased the learning rate by a fac
 I then ran the model for 100 epochs at a learning rate of 10^-7
 I noticed that the training accuracy stopped increasing at around 95% with validation accuracy >= training accuracty, which indicated that I didn't have enough parameters to learn from the pretrained model. 
 So I doubled the number of params in the first dense layer after the pretrained model, and added another dense layer. 
+I still wasn't getting the results I wanted, so I made the last 30 layers of the base model trainable. 
 """
