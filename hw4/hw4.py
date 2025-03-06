@@ -198,4 +198,5 @@ I then ran the model for 100 epochs at a learning rate of 10^-7
 I noticed that the training accuracy stopped increasing at around 95% with validation accuracy >= training accuracty, which indicated that I didn't have enough parameters to learn from the pretrained model. 
 So I doubled the number of params in the first dense layer after the pretrained model, and added another dense layer. 
 I still wasn't getting the results I wanted, so I made the last 30 layers of the base model trainable. 
+Training took approximately 3 hours on 2 a30 gpus on the HPRC Launch Cluster. 
 """
