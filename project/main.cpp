@@ -5,7 +5,7 @@ int main(){
     int n = 9;
     int k = 4;
     int m = 2;
-    vector<vector<double> G = generate_random_g(n, k, m);
+    vector<vector<double>> G = generate_random_g(n, k, m);
     double result = solve(k, n, G, m);
     cout << result << "\n";
 }
