@@ -86,6 +86,8 @@ double solveLPForTuple(const vector<vector<double>>& G,
                        const vector<int>& psi,
                        const vector<int>& Y) {
     glp_prob* lp = glp_create_prob();
+    glp_term_out(0);
+    glp_simplex(lp, NULL);
     glp_set_prob_name(lp, "m_height");
     glp_set_obj_dir(lp, GLP_MAX);  // We are maximizing
 

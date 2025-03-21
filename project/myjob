@@ -1,0 +1,15 @@
+#!/bin/bash
+#SBATCH --job-name=CSCE636_(deep_learning)_project
+#SBATCH --time=02:00:00
+#SBATCH --ntasks=2
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=371G
+#SBATCH --output=out
+#SBATCH --error=error
+
+module purge
+cd /scratch/user/u.ks124812/CSCE636/project/
+source modules.sh
+make -B main
+mpirun a.out
+
