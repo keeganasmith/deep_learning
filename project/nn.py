@@ -7,7 +7,7 @@ import joblib
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-
+from joblib import Parallel, delayed
 # Load the DataFrame
 df = joblib.load("results_dataframe.pkl")
 
@@ -37,22 +37,39 @@ class MHeightDataset(Dataset):
     def __getitem__(self, idx):
         return torch.tensor(self.features[idx]), torch.tensor(self.labels[idx])
 
-print("flattening G")
-df["flat_P"] = df.apply(lambda row: row["G"][:, row["k"]:].flatten().astype(np.float32), axis=1)
-# Split & Normalize
+# Parallel flattening of G → flat_P
+print("flattening G (in parallel)")
+
+def extract_flat_P(row):
+    return row["G"][:, row["k"]:].flatten().astype(np.float32)
+
+df["flat_P"] = Parallel(n_jobs=-1)(
+    delayed(extract_flat_P)(row) for _, row in df.iterrows()
+)
+
+# Convert back to DataFrame column
+df["flat_P"] = pd.Series(df["flat_P"])
+
+# Split
 train_df, val_df = train_test_split(df, test_size=0.1, random_state=42)
 print("got past split")
-# Fit scaler on training features
-sample_features = []
-for _, row in train_df.iterrows():
-    n, k, m = row['n'], row['k'], row['m']
-    flat_P = row["flat_P"]
-    x = np.concatenate([flat_P, [n, k, m]])
-    sample_features.append(x)
 
-scaler = StandardScaler().fit(np.array(sample_features))
+# Parallel construction of training feature matrix
+print("generating training features (in parallel)")
+def build_feature_vector(row):
+    return np.concatenate([row["flat_P"], [row["n"], row["k"], row["m"]]], dtype=np.float32)
+
+sample_features = Parallel(n_jobs=-1)(
+    delayed(build_feature_vector)(row) for _, row in train_df.iterrows()
+)
+
+sample_features = np.stack(sample_features)
+
+# Fit scaler
+scaler = StandardScaler().fit(sample_features)
 print("finished scaler")
-# Create datasets and dataloaders
+
+# Datasets and loaders
 train_dataset = MHeightDataset(train_df, scaler)
 val_dataset = MHeightDataset(val_df, scaler)
 
