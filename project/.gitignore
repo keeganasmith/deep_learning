@@ -3,3 +3,4 @@ a.out
 results.txt
 results.bin
 venv
+results_dataframe.pkl
