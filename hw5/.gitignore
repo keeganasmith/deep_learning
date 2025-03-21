@@ -3,3 +3,5 @@
 images
 annotations
 .ipynb_checkpoints*
+cats_vs_dogs_small
+train
