@@ -9,7 +9,7 @@ vector<vector<double>> generate_random_g(int n, int k, int m){
     }   
     random_device rd;
     mt19937 gen(rd());
-    uniform_real_distribution<double> dis(-10.0, 10.0);
+    uniform_real_distribution<double> dis(-100.0, 100.0);
     for (int i = 0; i < num_rows; i++) {
         for (int j = k; j < num_cols; j++) {
             double x = dis(gen);

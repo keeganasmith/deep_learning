@@ -1,6 +1,6 @@
 --------------------------------------------------------------------------
-mpirun has exited due to process rank 109 with PID 0 on
-node lc26 exiting improperly. There are three reasons this could occur:
+mpirun has exited due to process rank 3630 with PID 246390 on
+node lg10 exiting improperly. There are three reasons this could occur:
 
 1. this process did not call "init" before exiting, but others in
 the job did. This can cause a job to hang indefinitely while it waits
