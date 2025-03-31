@@ -1,4 +1,7 @@
 out*
+*.pkl
+*.swp
+*.pt
 a.out
 results.txt
 results.bin
