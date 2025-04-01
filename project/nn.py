@@ -63,7 +63,7 @@ def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     for n in range(n_lower, n_upper + 1):
         for k in range(k_lower, k_upper + 1):
             for m in range(m_lower, n - k + 1):
-                my_df = df.loc[df["k"] == k & df["n"] == n & df["m"] == m]
+                my_df = df.loc[(df["k"] == k) & (df["n"] == n) & (df["m"] == m)]
                 # Dataset and DataLoader
                 full_dataset = ResultsDataset(my_df)
                 train_indices, val_indices = train_test_split(range(len(full_dataset)), test_size=0.2, random_state=42)
