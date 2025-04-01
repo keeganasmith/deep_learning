@@ -7,6 +7,11 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import joblib
 import matplotlib.pyplot as plt
+def avg(sigmas):
+    total = 0
+    for val in sigmas:
+        total += val
+    return total / len(sigmas)
 class Log2Loss(nn.Module):
     def __init__(self):
         super(Log2Loss, self).__init__()
@@ -81,6 +86,7 @@ def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     return datasets
 
 def train(datasets, num_epochs, learning_rate):
+    sigmas = []
     for n in datasets:
         for k in datasets[n]:
             for m in datasets[n][k]:
@@ -104,7 +110,7 @@ def train(datasets, num_epochs, learning_rate):
                 epochs = num_epochs
                 train_losses = []
                 val_losses = []
-
+                sigma = 0
                 # Training loop
                 for epoch in range(epochs):
                     net.train()
@@ -125,19 +131,31 @@ def train(datasets, num_epochs, learning_rate):
                     # Validation evaluation
                     net.eval()
                     val_loss = 0.0
+                    all_preds = []
+                    all_targets = []
                     with torch.no_grad():
                         for inputs, targets in val_loader:
                             inputs, targets = inputs.to(device), targets.to(device)
                             preds = net(inputs)
                             loss = criterion(preds, targets)
                             val_loss += loss.item()
+                            all_preds.append(preds.cpu())
+                            all_targets.append(targets.cpu())
 
                     avg_val_loss = val_loss / len(val_loader)
                     val_losses.append(avg_val_loss)
+                    
+                    preds = torch.cat(all_preds).clamp(min=1.0)
+                    targets = torch.cat(all_targets)
 
-                    print(f"{n}, {m}, {k} - Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f} - Val Loss: {avg_val_loss:.4f}")
+                    log_pred = torch.log2(preds)
+                    log_true = torch.log2(targets)
+                    sigma = ((log_pred - log_true) ** 2).mean().item()
+                    print(f"{n}, {m}, {k} - Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f} - Val Loss: {avg_val_loss:.4f}, Val log cost: ", sigma)
 
                 # Save model
+                print("final validation sigma: ", sigma)
+                sigmas.append(sigma)
                 torch.save(net.state_dict(), f"./models/{n}-{k}-{m}_model.pt")
 
                 # Plot train and val loss
@@ -152,9 +170,8 @@ def train(datasets, num_epochs, learning_rate):
                 plt.tight_layout()
                 plt.savefig(f"./model/{n}-{k}-{m}_training_and_validation_loss.png")
                 print("Saved training plot as 'training_and_validation_loss.png'")
-
                 print("Saved training plot as 'training_loss_and_accuracy.png'")
-
+    print("average sigma across all models: ", avg(sigmas))
 def main():
     df = joblib.load("results_subset_1M.pkl")
     datasets = create_datasets(df, 9, 10, 4, 6, 2)
