@@ -50,7 +50,9 @@ class Net(nn.Module):
     def __init__(self, input_size):
         super(Net, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
             nn.ReLU(),
             nn.Linear(128, 64),
             nn.ReLU(),
@@ -176,7 +178,7 @@ def train(datasets, num_epochs, learning_rate):
                 print("Saved training plot as 'training_loss_and_accuracy.png'")
     print("average sigma across all models: ", avg(sigmas))
 def main():
-    df = joblib.load("results_subset_1M.pkl")
+    df = joblib.load("results_dataframe.pkl")
     datasets = create_datasets(df, 9, 10, 4, 6, 2)
     train(datasets, 50, .001)
 
