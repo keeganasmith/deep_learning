@@ -59,10 +59,12 @@ class Net(nn.Module):
 
 # Load data
 def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
+    print("creating datasets")
     datasets = {}
     for n in range(n_lower, n_upper + 1):
         for k in range(k_lower, k_upper + 1):
             for m in range(m_lower, n - k + 1):
+                print("creating dataset for ", n, " ", k, " ", m)
                 my_df = df.loc[(df["k"] == k) & (df["n"] == n) & (df["m"] == m)]
                 # Dataset and DataLoader
                 full_dataset = ResultsDataset(my_df)
@@ -77,7 +79,8 @@ def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
                     datasets[n] = {}
                 if(not datasets[n].get(k, None)):
                     datasets[n][k] = {}
-                datasets[n][k][m] = {"train_loader" : train_loader, "val_loader": val_loader, "full_dataset": full_dataset}
+                datasets[n][k][m] = {"train_loader" : train_loader, "val_loader": val_loader, "dataset": full_dataset}
+                print("finished dataset")
     return datasets
 
 def train(datasets, num_epochs, learning_rate):
@@ -150,7 +153,7 @@ def train(datasets, num_epochs, learning_rate):
                 plt.legend()
                 plt.grid(True)
                 plt.tight_layout()
-                plt.savefig(f"./model/{n}-{k}-{m}_training_and_validation_loss.png")
+                plt.savefig(f"./plots/{n}-{k}-{m}_training_and_validation_loss.png")
                 print("Saved training plot as 'training_and_validation_loss.png'")
 
                 print("Saved training plot as 'training_loss_and_accuracy.png'")
