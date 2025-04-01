@@ -159,3 +159,7 @@ def main():
     df = joblib.load("results_subset_1M.pkl")
     datasets = create_datasets(df, 9, 10, 4, 6, 2)
     train(datasets, 50, .001)
+
+
+if __name__ == "__main__":
+    main()
