@@ -91,6 +91,7 @@ def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     return datasets
 
 def train(datasets, num_epochs, learning_rate):
+    sigmas = []
     for n in datasets:
         for k in datasets[n]:
             for m in datasets[n][k]:
