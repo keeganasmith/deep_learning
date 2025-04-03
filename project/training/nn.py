@@ -9,10 +9,6 @@ import joblib
 import matplotlib.pyplot as plt
 import copy
 import torch.distributed as dist
-from torch.utils.data.distributed import DistributedSampler
-
-def init_distributed():
-    dist.init_process_group(backend="nccl", init_method="env://")
 
 def avg(sigmas):
     total = 0
@@ -73,8 +69,6 @@ class Net(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.3),
 
-
-
             nn.Linear(1024, 1)
         )
 
@@ -84,6 +78,7 @@ class Net(nn.Module):
 # Load data
 def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     print("creating datasets")
+    
     datasets = {}
     for n in range(n_lower, n_upper + 1):
         for k in range(k_lower, k_upper + 1):
@@ -96,9 +91,8 @@ def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
 
                 train_subset = torch.utils.data.Subset(full_dataset, train_indices)
                 val_subset = torch.utils.data.Subset(full_dataset, val_indices)
-
-                train_loader = DataLoader(train_subset, batch_size=512, num_workers=4, pin_memory=True, shuffle=True)
-                val_loader = DataLoader(val_subset, batch_size=512, num_workers=4, pin_memory=True, shuffle=False)
+                train_loader = DataLoader(train_subset, batch_size=512, num_workers=8, pin_memory=True, shuffle=True)
+                val_loader = DataLoader(val_subset, batch_size=512, num_workers=8, pin_memory=True, shuffle=False)
                 if(not datasets.get(n, None)):
                     datasets[n] = {}
                 if(not datasets[n].get(k, None)):
@@ -108,92 +102,110 @@ def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     return datasets
 
 def train(datasets, num_epochs, learning_rate):
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
     sigmas = []
+    device = torch.device("cuda", rank)
+
     for n in datasets:
         for k in datasets[n]:
             for m in datasets[n][k]:
-                element = datasets[n][k][m]
-                dataset = element["dataset"]
-                train_loader = element["train_loader"]
-                val_loader = element["val_loader"]
-                input_size = len(dataset[0][0])
-                net = Net(input_size)
-                min_val_loss = 10000000
-                best_model_state = None
-                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-                if torch.cuda.device_count() > 1:
-                    print(f"Using {torch.cuda.device_count()} GPUs")
-                    net = nn.DataParallel(net)
-                net.to(device)
+                idx = n * k + m
+                if(idx % world_size == rank):
+                    element = datasets[n][k][m]
+                    dataset = element["dataset"]
+                    train_loader = element["train_loader"]
+                    val_loader = element["val_loader"]
+                    input_size = len(dataset[0][0])
+                    net = Net(input_size)
+                    min_val_loss = 10000000
+                    best_model_state = None
+                    net.to(device)
+                    criterion = Log2Loss()
+                    optimizer = optim.Adam(net.parameters(), lr=learning_rate)
+                    epochs = num_epochs
+                    train_losses = []
+                    val_losses = []
+                    sigma = 10000000
+                    for epoch in range(epochs):
+                        net.train()
+                        running_loss = 0.0
 
-                criterion = Log2Loss()
-                optimizer = optim.Adam(net.parameters(), lr=learning_rate)
-                epochs = num_epochs
-                train_losses = []
-                val_losses = []
-                sigma = 10000000
-                for epoch in range(epochs):
-                    net.train()
-                    running_loss = 0.0
-
-                    for inputs, targets in train_loader:
-                        inputs, targets = inputs.to(device), targets.to(device)
-                        optimizer.zero_grad()
-                        outputs = net(inputs)
-                        loss = criterion(outputs, targets)
-                        loss.backward()
-                        optimizer.step()
-                        running_loss += loss.item()
-
-                    avg_train_loss = running_loss / len(train_loader)
-                    train_losses.append(avg_train_loss)
-                    net.eval()
-                    val_loss = 0.0
-                    all_preds = []
-                    all_targets = []
-                    with torch.no_grad():
-                        for inputs, targets in val_loader:
+                        for inputs, targets in train_loader:
                             inputs, targets = inputs.to(device), targets.to(device)
-                            preds = net(inputs)
-                            loss = criterion(preds, targets)
-                            val_loss += loss.item()
-                            all_preds.append(preds.cpu())
-                            all_targets.append(targets.cpu())
+                            optimizer.zero_grad()
+                            outputs = net(inputs)
+                            loss = criterion(outputs, targets)
+                            loss.backward()
+                            optimizer.step()
+                            running_loss += loss.item()
 
-                    avg_val_loss = val_loss / len(val_loader)
-                    val_losses.append(avg_val_loss)
-                    if(avg_val_loss < min_val_loss):
-                        min_val_loss = avg_val_loss
-                        best_model_state = copy.deepcopy(net.state_dict())
-                    preds = torch.cat(all_preds).clamp(min=1.0)
-                    targets = torch.cat(all_targets)
+                        avg_train_loss = running_loss / len(train_loader)
+                        train_losses.append(avg_train_loss)
+                        net.eval()
+                        val_loss = 0.0
+                        all_preds = []
+                        all_targets = []
+                        with torch.no_grad():
+                            for inputs, targets in val_loader:
+                                inputs, targets = inputs.to(device), targets.to(device)
+                                preds = net(inputs)
+                                loss = criterion(preds, targets)
+                                val_loss += loss.item()
+                                all_preds.append(preds.cpu())
+                                all_targets.append(targets.cpu())
 
-                    log_pred = torch.log2(preds)
-                    log_true = torch.log2(targets)
-                    sigma = min(((log_pred - log_true) ** 2).mean().item(), sigma)
-                    print(f"{n}, {m}, {k} - Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f} - Val Loss: {avg_val_loss:.4f}, Val log cost: ", sigma)
+                        avg_val_loss = val_loss / len(val_loader)
+                        val_losses.append(avg_val_loss)
+                        if(avg_val_loss < min_val_loss):
+                            min_val_loss = avg_val_loss
+                            best_model_state = copy.deepcopy(net.state_dict())
+                        preds = torch.cat(all_preds).clamp(min=1.0)
+                        targets = torch.cat(all_targets)
 
-                print("final best validation sigma: ", sigma)
-                sigmas.append(sigma)
-                torch.save(best_model_state, f"../models/{n}-{k}-{m}_model.pt")
+                        log_pred = torch.log2(preds)
+                        log_true = torch.log2(targets)
+                        sigma = min(((log_pred - log_true) ** 2).mean().item(), sigma)
+                        print(f"{n}, {m}, {k} - Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f} - Val Loss: {avg_val_loss:.4f}, Val log cost: ", sigma)
 
-                plt.figure(figsize=(10, 5))
-                plt.plot(train_losses, label="Training Loss")
-                plt.plot(val_losses, label="Validation Loss")
-                plt.xlabel("Epoch")
-                plt.ylabel("Loss")
-                plt.title("Training and Validation Loss")
-                plt.legend()
-                plt.grid(True)
-                plt.tight_layout()
-                plt.savefig(f"../plots/{n}-{k}-{m}_training_and_validation_loss.png")
-                print("Saved training plot as 'training_and_validation_loss.png'")
-                print("Saved training plot as 'training_loss_and_accuracy.png'")
-    print("average sigma across all models: ", avg(sigmas))
+                    print("final best validation sigma: ", sigma)
+                    sigmas.append(sigma)
+                    torch.save(best_model_state, f"../models/{n}-{k}-{m}_model.pt")
+
+                    plt.figure(figsize=(10, 5))
+                    plt.plot(train_losses, label="Training Loss")
+                    plt.plot(val_losses, label="Validation Loss")
+                    plt.xlabel("Epoch")
+                    plt.ylabel("Loss")
+                    plt.title("Training and Validation Loss")
+                    plt.legend()
+                    plt.grid(True)
+                    plt.tight_layout()
+                    plt.savefig(f"../plots/{n}-{k}-{m}_training_and_validation_loss.png")
+                    print("Saved training plot as 'training_and_validation_loss.png'")
+                    print("Saved training plot as 'training_loss_and_accuracy.png'")
+    
+    local_sum = torch.tensor([sum(sigmas)], device=device, dtype=torch.float32)
+    local_count = torch.tensor([len(sigmas)], device=device, dtype=torch.float32)
+
+    global_sum = local_sum.clone()
+    global_count = local_count.clone()
+
+    dist.all_reduce(global_sum, op=dist.ReduceOp.SUM)
+    dist.all_reduce(global_count, op=dist.ReduceOp.SUM)
+
+    overall_average = (global_sum / global_count).item()
+
+    if dist.get_rank() == 0:
+        print("Overall average sigma:", overall_average)
+
+
 def main():
+    dist.init_process_group(backend="nccl", init_method="env://")
     df = joblib.load("results_dataframe.pkl")
     datasets = create_datasets(df, 9, 10, 4, 6, 2)
     train(datasets, 40, .001)
+    dist.destroy_process_group()
 
 
 if __name__ == "__main__":
