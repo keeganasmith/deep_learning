@@ -5,7 +5,6 @@ import torch.optim as optim
 import pandas as pd
 import numpy as np
 from torch.utils.data import Dataset, DataLoader, Subset
-from torch.utils.data.distributed import DistributedSampler
 
 import joblib
 import matplotlib.pyplot as plt
@@ -210,8 +209,11 @@ def train(datasets, num_epochs, learning_rate):
 
 
 def main():
+    print("got to main")
     dist.init_process_group(backend="nccl", init_method="env://")
+    print("finished initializing process group")
     df = joblib.load("results_subset_1M.pkl")
+    print("finished loading dataset")
     datasets = create_datasets(df, 9, 10, 4, 6, 2)
     train(datasets, 40, .001)
     dist.destroy_process_group()
