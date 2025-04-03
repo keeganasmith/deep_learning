@@ -50,15 +50,13 @@ class Net(nn.Module):
     def __init__(self, input_size):
         super(Net, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(input_size, 256),
+            nn.Linear(input_size, 1024),
             nn.ReLU(),
-            nn.Linear(256, 128),
+            nn.Linear(1024, 1024),
             nn.ReLU(),
-            nn.Linear(128, 64),
+            nn.Linear(1024, 1024),
             nn.ReLU(),
-            nn.Linear(64, 32),
-            nn.ReLU(),
-            nn.Linear(32, 1)
+            nn.Linear(1024, 1)
         )
 
     def forward(self, x):
@@ -80,8 +78,8 @@ def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
                 train_subset = torch.utils.data.Subset(full_dataset, train_indices)
                 val_subset = torch.utils.data.Subset(full_dataset, val_indices)
 
-                train_loader = DataLoader(train_subset, batch_size=512, shuffle=True)
-                val_loader = DataLoader(val_subset, batch_size=512, shuffle=False)
+                train_loader = DataLoader(train_subset, batch_size=512, num_workers=4, pin_memory=True, shuffle=True)
+                val_loader = DataLoader(val_subset, batch_size=512, num_workers=4, pin_memory=True, shuffle=False)
                 if(not datasets.get(n, None)):
                     datasets[n] = {}
                 if(not datasets[n].get(k, None)):
