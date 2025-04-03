@@ -91,7 +91,6 @@ def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     return datasets
 
 def train(datasets, num_epochs, learning_rate):
-    sigmas = []
     for n in datasets:
         for k in datasets[n]:
             for m in datasets[n][k]:
@@ -102,21 +101,18 @@ def train(datasets, num_epochs, learning_rate):
                 input_size = len(dataset[0][0])
                 net = Net(input_size)
 
-                # Use all available GPUs
                 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
                 if torch.cuda.device_count() > 1:
                     print(f"Using {torch.cuda.device_count()} GPUs")
                     net = nn.DataParallel(net)
                 net.to(device)
 
-                # Training setup
                 criterion = Log2Loss()
                 optimizer = optim.Adam(net.parameters(), lr=learning_rate)
                 epochs = num_epochs
                 train_losses = []
                 val_losses = []
-                sigma = 0
-                # Training loop
+                sigma = 10000000
                 for epoch in range(epochs):
                     net.train()
                     running_loss = 0.0
@@ -132,8 +128,6 @@ def train(datasets, num_epochs, learning_rate):
 
                     avg_train_loss = running_loss / len(train_loader)
                     train_losses.append(avg_train_loss)
-
-                    # Validation evaluation
                     net.eval()
                     val_loss = 0.0
                     all_preds = []
@@ -155,15 +149,13 @@ def train(datasets, num_epochs, learning_rate):
 
                     log_pred = torch.log2(preds)
                     log_true = torch.log2(targets)
-                    sigma = ((log_pred - log_true) ** 2).mean().item()
+                    sigma = min(((log_pred - log_true) ** 2).mean().item(), sigma)
                     print(f"{n}, {m}, {k} - Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f} - Val Loss: {avg_val_loss:.4f}, Val log cost: ", sigma)
 
-                # Save model
-                print("final validation sigma: ", sigma)
+                print("final best validation sigma: ", sigma)
                 sigmas.append(sigma)
-                torch.save(net.state_dict(), f"./models/{n}-{k}-{m}_model.pt")
+                torch.save(net.state_dict(), f"../models/{n}-{k}-{m}_model.pt")
 
-                # Plot train and val loss
                 plt.figure(figsize=(10, 5))
                 plt.plot(train_losses, label="Training Loss")
                 plt.plot(val_losses, label="Validation Loss")
@@ -173,14 +165,14 @@ def train(datasets, num_epochs, learning_rate):
                 plt.legend()
                 plt.grid(True)
                 plt.tight_layout()
-                plt.savefig(f"./plots/{n}-{k}-{m}_training_and_validation_loss.png")
+                plt.savefig(f"../plots/{n}-{k}-{m}_training_and_validation_loss.png")
                 print("Saved training plot as 'training_and_validation_loss.png'")
                 print("Saved training plot as 'training_loss_and_accuracy.png'")
     print("average sigma across all models: ", avg(sigmas))
 def main():
     df = joblib.load("results_dataframe.pkl")
     datasets = create_datasets(df, 9, 10, 4, 6, 2)
-    train(datasets, 50, .001)
+    train(datasets, 40, .001)
 
 
 if __name__ == "__main__":
