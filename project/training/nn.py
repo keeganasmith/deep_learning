@@ -4,8 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 import pandas as pd
 import numpy as np
-from torch.utils.data import Dataset, DataLoader, Subset
-
+from torch.utils.data import Dataset, DataLoader
 import joblib
 import matplotlib.pyplot as plt
 import copy
@@ -88,8 +87,8 @@ def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
                 full_dataset = ResultsDataset(my_df)
                 train_indices, val_indices = train_test_split(range(len(full_dataset)), test_size=0.2, random_state=42)
                 
-                train_subset = Subset(full_dataset, train_indices)
-                val_subset = Subset(full_dataset, val_indices)
+                train_subset = torch.utils.data.Subset(full_dataset, train_indices)
+                val_subset = torch.utils.data.Subset(full_dataset, val_indices)
         
                 
                 train_loader = DataLoader(train_subset, batch_size=512, num_workers=8,
