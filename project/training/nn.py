@@ -202,7 +202,7 @@ def train(datasets, num_epochs, learning_rate):
 
 def main():
     dist.init_process_group(backend="nccl", init_method="env://")
-    df = joblib.load("results_dataframe.pkl")
+    df = joblib.load("results_subset_1M.pkl")
     datasets = create_datasets(df, 9, 10, 4, 6, 2)
     train(datasets, 40, .001)
     dist.destroy_process_group()
