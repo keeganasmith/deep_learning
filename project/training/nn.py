@@ -4,7 +4,9 @@ import torch.nn as nn
 import torch.optim as optim
 import pandas as pd
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
+from torch.utils.data.distributed import DistributedSampler
+
 import joblib
 import matplotlib.pyplot as plt
 import copy
@@ -77,28 +79,38 @@ class Net(nn.Module):
 
 # Load data
 def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
-    print("creating datasets")
-    
+    print("Creating datasets")
     datasets = {}
     for n in range(n_lower, n_upper + 1):
         for k in range(k_lower, k_upper + 1):
             for m in range(m_lower, n - k + 1):
-                print("creating dataset for ", n, " ", k, " ", m)
+                print("Creating dataset for ", n, k, m)
                 my_df = df.loc[(df["k"] == k) & (df["n"] == n) & (df["m"] == m)]
-                # Dataset and DataLoader
                 full_dataset = ResultsDataset(my_df)
                 train_indices, val_indices = train_test_split(range(len(full_dataset)), test_size=0.2, random_state=42)
-
-                train_subset = torch.utils.data.Subset(full_dataset, train_indices)
-                val_subset = torch.utils.data.Subset(full_dataset, val_indices)
-                train_loader = DataLoader(train_subset, batch_size=512, num_workers=8, pin_memory=True, shuffle=True)
-                val_loader = DataLoader(val_subset, batch_size=512, num_workers=8, pin_memory=True, shuffle=False)
-                if(not datasets.get(n, None)):
+                
+                train_subset = Subset(full_dataset, train_indices)
+                val_subset = Subset(full_dataset, val_indices)
+                
+                
+                train_sampler = DistributedSampler(train_subset)
+                val_sampler = DistributedSampler(val_subset, shuffle=False)
+                
+                train_loader = DataLoader(train_subset, batch_size=512, num_workers=8,
+                                          pin_memory=True, sampler=train_sampler)
+                val_loader = DataLoader(val_subset, batch_size=512, num_workers=8,
+                                        pin_memory=True, sampler=val_sampler)
+                
+                if n not in datasets:
                     datasets[n] = {}
-                if(not datasets[n].get(k, None)):
+                if k not in datasets[n]:
                     datasets[n][k] = {}
-                datasets[n][k][m] = {"train_loader" : train_loader, "val_loader": val_loader, "dataset": full_dataset}
-                print("finished dataset")
+                datasets[n][k][m] = {
+                    "train_loader": train_loader,
+                    "val_loader": val_loader,
+                    "dataset": full_dataset
+                }
+                print("Finished dataset for ", n, k, m)
     return datasets
 
 def train(datasets, num_epochs, learning_rate):
@@ -106,15 +118,16 @@ def train(datasets, num_epochs, learning_rate):
     world_size = dist.get_world_size()
     sigmas = []
     device = torch.device("cuda", rank)
-
+    idx =0
     for n in datasets:
         for k in datasets[n]:
             for m in datasets[n][k]:
-                idx = n * k + m
                 if(idx % world_size == rank):
                     element = datasets[n][k][m]
                     dataset = element["dataset"]
                     train_loader = element["train_loader"]
+                    train_loader.sampler.set_epoch(epoch)
+
                     val_loader = element["val_loader"]
                     input_size = len(dataset[0][0])
                     net = Net(input_size)
@@ -184,6 +197,7 @@ def train(datasets, num_epochs, learning_rate):
                     plt.savefig(f"../plots/{n}-{k}-{m}_training_and_validation_loss.png")
                     print("Saved training plot as 'training_and_validation_loss.png'")
                     print("Saved training plot as 'training_loss_and_accuracy.png'")
+                idx += 1
     
     local_sum = torch.tensor([sum(sigmas)], device=device, dtype=torch.float32)
     local_count = torch.tensor([len(sigmas)], device=device, dtype=torch.float32)
