@@ -51,11 +51,20 @@ class Net(nn.Module):
         super(Net, self).__init__()
         self.model = nn.Sequential(
             nn.Linear(input_size, 1024),
+            nn.BatchNorm1d(1024),
             nn.ReLU(),
+            nn.Dropout(0.3),
+
             nn.Linear(1024, 1024),
+            nn.BatchNorm1d(1024),
             nn.ReLU(),
+            nn.Dropout(0.3),
+
             nn.Linear(1024, 1024),
+            nn.BatchNorm1d(1024),
             nn.ReLU(),
+            nn.Dropout(0.3),
+
             nn.Linear(1024, 1)
         )
 
