@@ -2,17 +2,16 @@
 #SBATCH --job-name=deep_learning
 #SBATCH --time=1-00:00:00
 #SBATCH --nodes=2
+#SBATCH --ntasks-per-node=1
 #SBATCH --exclusive
 #SBATCH --partition=staff
-#SBATCH --cpus-per-gpu=96
 #SBATCH --gres=gpu:a30:2
 #SBATCH --mem=371G
 #SBATCH --output=out
 #SBATCH --error=error
-
 module purge
 cd /scratch/user/u.ks124812/CSCE636/project/
 source modules.sh
 source venv/bin/activate
 cd training
-torchrun --nproc_per_node=2 --nnodes=2 nn.py
+srun torchrun --nnodes=$nodes --nproc_per_node=2 nn.py
