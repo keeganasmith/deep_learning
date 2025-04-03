@@ -91,15 +91,12 @@ def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
                 
                 train_subset = Subset(full_dataset, train_indices)
                 val_subset = Subset(full_dataset, val_indices)
-                
-                
-                train_sampler = DistributedSampler(train_subset)
-                val_sampler = DistributedSampler(val_subset, shuffle=False)
+        
                 
                 train_loader = DataLoader(train_subset, batch_size=512, num_workers=8,
-                                          pin_memory=True, sampler=train_sampler)
+                                          pin_memory=True)
                 val_loader = DataLoader(val_subset, batch_size=512, num_workers=8,
-                                        pin_memory=True, sampler=val_sampler)
+                                        pin_memory=True)
                 
                 if n not in datasets:
                     datasets[n] = {}
@@ -126,8 +123,6 @@ def train(datasets, num_epochs, learning_rate):
                     element = datasets[n][k][m]
                     dataset = element["dataset"]
                     train_loader = element["train_loader"]
-                    train_loader.sampler.set_epoch(epoch)
-
                     val_loader = element["val_loader"]
                     input_size = len(dataset[0][0])
                     net = Net(input_size)
