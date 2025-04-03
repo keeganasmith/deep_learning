@@ -8,6 +8,12 @@ from torch.utils.data import Dataset, DataLoader
 import joblib
 import matplotlib.pyplot as plt
 import copy
+import torch.distributed as dist
+from torch.utils.data.distributed import DistributedSampler
+
+def init_distributed():
+    dist.init_process_group(backend="nccl", init_method="env://")
+
 def avg(sigmas):
     total = 0
     for val in sigmas:
