@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=deep_learning
-#SBATCH --time=10:00:00
-#SBATCH --ntasks=3648
+#SBATCH --time=1-00:00:00
+#SBATCH --ntasks=3840
 #SBATCH --partition=staff
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=371G

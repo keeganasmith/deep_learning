@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
     srand(time(NULL) + rank); 
     // Each node generates 5 results.
     vector<Result> local_results;
-    for (int i = 0; i < 3000; i++){
+    for (int i = 0; i < 30000; i++){
         int n = rand() % 2 + 9;            // n in {9, 10}
         int k = rand() % 3 + 4;              // k in {4, 5, 6}
         int m = rand() % (n - k - 2 + 1) + 2;  // m in [2, n-k]
