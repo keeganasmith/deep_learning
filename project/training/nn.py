@@ -7,6 +7,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import joblib
 import matplotlib.pyplot as plt
+import copy
 def avg(sigmas):
     total = 0
     for val in sigmas:
@@ -108,7 +109,8 @@ def train(datasets, num_epochs, learning_rate):
                 val_loader = element["val_loader"]
                 input_size = len(dataset[0][0])
                 net = Net(input_size)
-
+                min_val_loss = 10000000
+                best_model_state = None
                 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
                 if torch.cuda.device_count() > 1:
                     print(f"Using {torch.cuda.device_count()} GPUs")
@@ -151,7 +153,9 @@ def train(datasets, num_epochs, learning_rate):
 
                     avg_val_loss = val_loss / len(val_loader)
                     val_losses.append(avg_val_loss)
-                    
+                    if(avg_val_loss < min_val_loss):
+                        min_val_loss = avg_val_loss
+                        best_model_state = copy.deepcopy(net.state_dict())
                     preds = torch.cat(all_preds).clamp(min=1.0)
                     targets = torch.cat(all_targets)
 
@@ -162,7 +166,7 @@ def train(datasets, num_epochs, learning_rate):
 
                 print("final best validation sigma: ", sigma)
                 sigmas.append(sigma)
-                torch.save(net.state_dict(), f"../models/{n}-{k}-{m}_model.pt")
+                torch.save(best_model_state, f"../models/{n}-{k}-{m}_model.pt")
 
                 plt.figure(figsize=(10, 5))
                 plt.plot(train_losses, label="Training Loss")
