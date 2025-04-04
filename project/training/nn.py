@@ -208,7 +208,7 @@ def train(datasets, num_epochs, learning_rate):
 
     global_sum = local_sum.clone()
     global_count = local_count.clone()
-
+    dist.barrier()
     dist.all_reduce(global_sum, op=dist.ReduceOp.SUM)
     dist.all_reduce(global_count, op=dist.ReduceOp.SUM)
 
@@ -222,7 +222,7 @@ def main():
     print("got to main")
     dist.init_process_group(backend="nccl", init_method="env://")
     print("finished initializing process group")
-    df = joblib.load("results_dataframe.pkl")
+    df = joblib.load("results_subset_1M.pkl")
     print("finished loading dataset")
     datasets = create_datasets(df, 9, 10, 4, 6, 2)
     train(datasets, 50, .001)
