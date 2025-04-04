@@ -53,33 +53,33 @@ class Net(nn.Module):
     def __init__(self, input_size):
         super(Net, self).__init__()
         self.model = nn.Sequential(
-	    nn.Linear(input_size, 1024),
-            nn.BatchNorm1d(1024),
+	    nn.Linear(input_size, 2048),
+            nn.BatchNorm1d(2048),
             nn.ReLU(),
             nn.Dropout(0.3),
                         
-	    nn.Linear(1024, 1024),
-            nn.BatchNorm1d(1024),
+	    nn.Linear(2048, 2048),
+            nn.BatchNorm1d(2048),
             nn.ReLU(),
             nn.Dropout(0.3),
              
-	    nn.Linear(1024, 1024),
-            nn.BatchNorm1d(1024),
+	    nn.Linear(2048, 2048),
+            nn.BatchNorm1d(2048),
             nn.ReLU(),
             nn.Dropout(0.3),
         
-            nn.Linear(1024, 1024),
-            nn.BatchNorm1d(1024),
+            nn.Linear(2048, 2048),
+            nn.BatchNorm1d(2048),
             nn.ReLU(),
             nn.Dropout(0.3),
         
-            nn.Linear(1024, 1024),
-            nn.BatchNorm1d(1024),
+            nn.Linear(2048, 2048),
+            nn.BatchNorm1d(2048),
             nn.ReLU(),
             nn.Dropout(0.3),
         
 
-	    nn.Linear(1024, 1)
+	    nn.Linear(2048, 1)
         
         )
 
@@ -222,7 +222,7 @@ def main():
     print("got to main")
     dist.init_process_group(backend="nccl", init_method="env://")
     print("finished initializing process group")
-    df = joblib.load("results_subset_1M.pkl")
+    df = joblib.load("large_results_dataframe.pkl")
     print("finished loading dataset")
     datasets = create_datasets(df, 9, 10, 4, 6, 2)
     train(datasets, 50, .001)
