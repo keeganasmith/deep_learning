@@ -53,23 +53,34 @@ class Net(nn.Module):
     def __init__(self, input_size):
         super(Net, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(input_size, 1024),
+	    nn.Linear(input_size, 1024),
+            nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Dropout(0.3),
-
+                        
+	    nn.Linear(1024, 1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+             
+	    nn.Linear(1024, 1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+        
             nn.Linear(1024, 1024),
+            nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Dropout(0.3),
-
+        
             nn.Linear(1024, 1024),
+            nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Dropout(0.3),
+        
 
-            nn.Linear(1024, 1024),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-
-            nn.Linear(1024, 1)
+	    nn.Linear(1024, 1)
+        
         )
 
     def forward(self, x):
@@ -211,10 +222,10 @@ def main():
     print("got to main")
     dist.init_process_group(backend="nccl", init_method="env://")
     print("finished initializing process group")
-    df = joblib.load("results_subset_1M.pkl")
+    df = joblib.load("results_dataframe.pkl")
     print("finished loading dataset")
     datasets = create_datasets(df, 9, 10, 4, 6, 2)
-    train(datasets, 40, .001)
+    train(datasets, 50, .001)
     dist.destroy_process_group()
 
 
