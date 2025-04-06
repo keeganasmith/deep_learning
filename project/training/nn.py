@@ -9,6 +9,7 @@ import joblib
 import matplotlib.pyplot as plt
 import copy
 import torch.distributed as dist
+import datetime
 
 def avg(sigmas):
     total = 0
@@ -120,10 +121,10 @@ def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     return datasets
 
 def train(datasets, num_epochs, learning_rate):
-    rank = dist.get_rank()
     world_size = dist.get_world_size()
     sigmas = []
-    device = torch.device("cuda", rank)
+    local_rank = int(os.environ["LOCAL_RANK"])
+    device = torch.device("cuda", local_rank)
     idx =0
     for n in datasets:
         for k in datasets[n]:
@@ -220,7 +221,7 @@ def train(datasets, num_epochs, learning_rate):
 
 def main():
     print("got to main")
-    dist.init_process_group(backend="nccl", init_method="env://")
+    dist.init_process_group(backend="nccl", init_method="env://", timeout=datetime.timedelta(seconds=60000))
     print("finished initializing process group")
     df = joblib.load("large_results_dataframe.pkl")
     print("finished loading dataset")
