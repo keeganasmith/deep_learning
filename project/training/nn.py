@@ -130,7 +130,7 @@ def train(datasets, num_epochs, learning_rate):
     for n in datasets:
         for k in datasets[n]:
             for m in datasets[n][k]:
-                if(idx % world_size == rank):
+                if(idx % world_size == local_rank):
                     element = datasets[n][k][m]
                     dataset = element["dataset"]
                     train_loader = element["train_loader"]
@@ -216,7 +216,7 @@ def train(datasets, num_epochs, learning_rate):
 
     overall_average = (global_sum / global_count).item()
 
-    if dist.get_rank() == 0:
+    if local_rank == 0:
         print("Overall average sigma:", overall_average)
 
 
