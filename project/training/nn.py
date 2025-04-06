@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import copy
 import torch.distributed as dist
 import datetime
+import os
 
 def avg(sigmas):
     total = 0
