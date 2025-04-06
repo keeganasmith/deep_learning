@@ -11,43 +11,9 @@ import copy
 import torch.distributed as dist
 import datetime
 import os
-
-def avg(sigmas):
-    total = 0
-    for val in sigmas:
-        total += val
-    return total / len(sigmas)
-
-class Log2Loss(nn.Module):
-    def __init__(self):
-        super(Log2Loss, self).__init__()
-
-    def forward(self, y_pred, y_true):
-        y_pred = torch.clamp(y_pred, min=1e-6)
-        y_true = torch.clamp(y_true, min=1e-6)
-        log_pred = torch.log2(y_pred)
-        log_true = torch.log2(y_true)
-        return torch.mean((log_pred - log_true) ** 2)
-
-class ResultsDataset(Dataset):
-    def __init__(self, df):
-        self.inputs = []
-        self.targets = []
-        for _, row in df.iterrows():
-            scalars = [row["n"], row["k"], row["m"]]
-            p_vector = np.array(row["P"], dtype=np.float32)
-            x = np.concatenate([scalars, p_vector])
-            self.inputs.append(x)
-            self.targets.append(row["result"])
-
-        self.inputs = torch.tensor(self.inputs, dtype=torch.float32)
-        self.targets = torch.tensor(self.targets, dtype=torch.float32).unsqueeze(1)
-
-    def __len__(self):
-        return len(self.inputs)
-
-    def __getitem__(self, idx):
-        return self.inputs[idx], self.targets[idx]
+from nn import Log2Loss
+from nn import ResultsDataset
+from nn import create_datasets
 
 class TransformerNet(nn.Module):
     def __init__(self, p_rows, p_cols, d_model=128, nhead=4, num_layers=3, dim_feedforward=256, dropout=0.3):
@@ -125,38 +91,6 @@ class TransformerNet(nn.Module):
         out = self.final_linear(combined)  # shape: [batch_size, 1]
         return out
 
-# The dataset creation function remains unchanged.
-def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
-    print("Creating datasets")
-    datasets = {}
-    for n in range(n_lower, n_upper + 1):
-        for k in range(k_lower, k_upper + 1):
-            for m in range(m_lower, n - k + 1):
-                print("Creating dataset for ", n, k, m)
-                my_df = df.loc[(df["k"] == k) & (df["n"] == n) & (df["m"] == m)]
-                full_dataset = ResultsDataset(my_df)
-                train_indices, val_indices = train_test_split(range(len(full_dataset)), test_size=0.2, random_state=42)
-                
-                train_subset = torch.utils.data.Subset(full_dataset, train_indices)
-                val_subset = torch.utils.data.Subset(full_dataset, val_indices)
-                
-                train_loader = DataLoader(train_subset, batch_size=512, num_workers=8,
-                                          pin_memory=True)
-                val_loader = DataLoader(val_subset, batch_size=512, num_workers=8,
-                                        pin_memory=True)
-                
-                if n not in datasets:
-                    datasets[n] = {}
-                if k not in datasets[n]:
-                    datasets[n][k] = {}
-                datasets[n][k][m] = {
-                    "train_loader": train_loader,
-                    "val_loader": val_loader,
-                    "dataset": full_dataset
-                }
-                print("Finished dataset for ", n, k, m)
-    return datasets
-
 # Training function with distributed training.
 def train(datasets, num_epochs, learning_rate):
     world_size = dist.get_world_size()
@@ -229,7 +163,7 @@ def train(datasets, num_epochs, learning_rate):
 
                     print("Final best validation sigma: ", sigma)
                     sigmas.append(sigma)
-                    torch.save(best_model_state, f"../models/{n}-{k}-{m}_model.pt")
+                    torch.save(best_model_state, f"../transformer_models/{n}-{k}-{m}_model.pt")
 
                     plt.figure(figsize=(10, 5))
                     plt.plot(train_losses, label="Training Loss")
@@ -240,7 +174,7 @@ def train(datasets, num_epochs, learning_rate):
                     plt.legend()
                     plt.grid(True)
                     plt.tight_layout()
-                    plt.savefig(f"../plots/{n}-{k}-{m}_training_and_validation_loss.png")
+                    plt.savefig(f"../transformer_plots/{n}-{k}-{m}_training_and_validation_loss.png")
                     print("Saved training plot for", n, k, m)
                 idx += 1
 
@@ -260,7 +194,7 @@ def main():
     print("Got to main")
     dist.init_process_group(backend="nccl", init_method="env://", timeout=datetime.timedelta(seconds=60000))
     print("Finished initializing process group")
-    df = joblib.load("large_results_dataframe.pkl")
+    df = joblib.load("results_subset_1M.pkl")
     print("Finished loading dataset")
     
     datasets = create_datasets(df, 9, 10, 4, 6, 2)
