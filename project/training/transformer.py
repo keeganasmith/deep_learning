@@ -35,17 +35,22 @@ class TransformerNet(nn.Module):
         self.col_embedding = nn.Linear(p_rows, d_model)
         
         # Transformer encoder for the column tokens.
-        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model,
-                                                   nhead=nhead,
-                                                   dim_feedforward=dim_feedforward,
-                                                   dropout=dropout)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout
+        )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         
         # Process the scalar features (n, k, m) into a representation of size d_model.
         self.scalar_fc = nn.Linear(3, d_model)
         
-        # Combine the aggregated column representation and the scalar representation.
-        self.final_linear = nn.Linear(2 * d_model, 1)
+        # Additional fully-connected layers for deeper processing.
+        self.fc1 = nn.Linear(2 * d_model, 2 * d_model)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)
+        self.fc2 = nn.Linear(2 * d_model, 1)
 
     def forward(self, x):
         """
@@ -88,7 +93,12 @@ class TransformerNet(nn.Module):
         
         # Combine the representations.
         combined = torch.cat([col_repr, scalar_repr], dim=1)  # shape: [batch_size, 2 * d_model]
-        out = self.final_linear(combined)  # shape: [batch_size, 1]
+        
+        # Deeper processing: additional fully connected layers.
+        x = self.fc1(combined)
+        x = self.relu(x)
+        x = self.dropout(x)
+        out = self.fc2(x)
         return out
 
 # Training function with distributed training.
@@ -112,7 +122,7 @@ def train(datasets, num_epochs, learning_rate):
                     input_size = dataset.inputs.shape[1]
                     
                     # Instantiate the Transformer-based model.
-                    net = TransformerNet(k, n - k)
+                    net = TransformerNet(k, n - k, d_model=512, dim_feedforward=2048)
                     min_val_loss = float('inf')
                     best_model_state = None
                     net.to(device)
