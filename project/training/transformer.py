@@ -16,7 +16,7 @@ from nn import ResultsDataset
 from nn import create_datasets
 
 class TransformerNet(nn.Module):
-    def __init__(self, p_rows, p_cols, d_model=128, nhead=4, num_layers=3, dim_feedforward=256, dropout=0.3):
+    def __init__(self, p_rows, p_cols, d_model=128, nhead=8, num_layers=6, dim_feedforward=256, dropout=0.3):
         """
         Args:
             p_rows: Number of rows in the original P matrix.
@@ -204,7 +204,7 @@ def main():
     print("Got to main")
     dist.init_process_group(backend="nccl", init_method="env://", timeout=datetime.timedelta(seconds=60000))
     print("Finished initializing process group")
-    df = joblib.load("results_subset_1M.pkl")
+    df = joblib.load("results_dataframe.pkl")
     print("Finished loading dataset")
     
     datasets = create_datasets(df, 9, 10, 4, 6, 2)

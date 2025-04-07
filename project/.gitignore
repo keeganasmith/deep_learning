@@ -2,6 +2,7 @@ out*
 *.pkl
 *.swp
 *.pt
+*__pycache__
 a.out
 results.txt
 results.bin

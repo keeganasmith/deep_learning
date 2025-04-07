@@ -1,0 +1,16 @@
+#!/bin/bash
+#SBATCH --job-name=deep_learning
+#SBATCH --time=2-00:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --exclusive
+#SBATCH --partition=staff
+#SBATCH --gres=gpu:a30:2
+#SBATCH --mem=371G
+#SBATCH --output=transformer_out
+module purge
+cd /scratch/user/u.ks124812/CSCE636/project/
+source modules.sh
+source venv/bin/activate
+cd training
+srun torchrun --nnodes=1 --nproc_per_node=2 transformer.py
