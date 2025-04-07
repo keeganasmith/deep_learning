@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=deep_learning
+#SBATCH --job-name=transformer
 #SBATCH --time=2-00:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1

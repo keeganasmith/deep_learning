@@ -16,7 +16,7 @@ from nn import ResultsDataset
 from nn import create_datasets
 
 class TransformerNet(nn.Module):
-    def __init__(self, p_rows, p_cols, d_model=128, nhead=8, num_layers=6, dim_feedforward=256, dropout=0.3):
+    def __init__(self, p_rows, p_cols, d_model=128, nhead=8, num_layers=4, dim_feedforward=256, dropout=0.3):
         """
         Args:
             p_rows: Number of rows in the original P matrix.
@@ -122,7 +122,7 @@ def train(datasets, num_epochs, learning_rate):
                     input_size = dataset.inputs.shape[1]
                     
                     # Instantiate the Transformer-based model.
-                    net = TransformerNet(k, n - k, d_model=512, dim_feedforward=2048)
+                    net = TransformerNet(k, n - k, d_model=1024,dim_feedforward=4096, nhead=32,num_layers = 6)
                     min_val_loss = float('inf')
                     best_model_state = None
                     net.to(device)
