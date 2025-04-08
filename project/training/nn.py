@@ -227,7 +227,7 @@ def main():
     df = joblib.load("large_results_dataframe.pkl")
     print("finished loading dataset")
     datasets = create_datasets(df, 9, 10, 4, 6, 2)
-    train(datasets, 50, .001)
+    train(datasets, 50, .0001)
     dist.destroy_process_group()
 
 
