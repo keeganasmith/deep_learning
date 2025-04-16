@@ -14,4 +14,4 @@ cd /scratch/user/u.ks124812/CSCE636/project/
 source modules.sh
 source venv/bin/activate
 cd training
-srun torchrun --nnodes=1 --nproc_per_node=2 nn.py
+srun torchrun --nnodes=1 --nproc_per_node=2 nn_6.py
