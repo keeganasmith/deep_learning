@@ -42,10 +42,11 @@ def collate_pad(batch):
 
 class ResultsDataset(Dataset):
     def __init__(self, df):
-        self.random_x = [
-            torch.from_numpy(x.T).float()
-            for x in df['random_x']
-        ]
+        self.random_x = []
+        for x_list in df['random_x']:
+            x_arr = np.stack(x_list, axis=0)
+            self.random_x.append(torch.from_numpy(x_arr.T).float())
+            
         self.P = [
             torch.from_numpy(np.array(P).T).float()
             for P in df['P']
