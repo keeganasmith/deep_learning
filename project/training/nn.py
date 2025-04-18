@@ -12,53 +12,71 @@ from m_height import calculate_m_height  # (x, m, p)
 
 # Custom collate to pad random_x and P columns into a unified token sequence
 def collate_pad(batch):
-    random_x_list, P_list, heights_list, targets = zip(*batch)
-    ks = [x.shape[1] for x in random_x_list]
-    nk_dims = [P.shape[1] for P in P_list]
-    max_k = max(ks)
-    max_nk = max(nk_dims)
+    x_seqs, P_seqs, h_vecs, ys, n_list, m_list, k_list = zip(*batch)
 
+    # compute per‑batch max lengths
+    k_vals  = [x.shape[0] for x in x_seqs] # k_i
+    nk_vals = [P.shape[0] for P in P_seqs] # n_i - k_i
+    max_k   = max(k_vals)
+    max_nk  = max(nk_vals)
     B = len(batch)
-    x_pad = torch.zeros(B, 10, max_k, dtype=torch.float32)
-    P_pad = torch.zeros(B, max_nk, max_k, dtype=torch.float32)
-    h_pad = torch.zeros(B, 10, dtype=torch.float32)
 
-    for i, (x_np, P_np, h_np, tgt) in enumerate(batch):
-        k = x_np.shape[1]
-        nk = P_np.shape[1]
-        x_pad[i, :, :k] = torch.from_numpy(x_np)
-        P_full = torch.zeros(max_k, max_nk, dtype=torch.float32)
-        P_full[:k, :nk] = torch.from_numpy(P_np)
-        P_pad[i] = P_full[:max_k, :max_nk].T
-        h_pad[i] = torch.from_numpy(h_np)
-    y = torch.tensor(targets, dtype=torch.float32).unsqueeze(1)
-    return x_pad,P_pad, h_pad, y
+    # allocate pads
+    x_pad = torch.zeros(B, max_k, 10, dtype=torch.float32) # (B, max_k, 10)
+    P_pad = torch.zeros(B, max_nk, max_k, dtype=torch.float32) # (B, max_nk, max_k)
+    h_pad = torch.stack(h_vecs, dim=0) # (B, 10)
+    y_pad = torch.cat(ys, dim=0) # (B, 1)
+
+    for i, (x, P) in enumerate(zip(x_seqs, P_seqs)):
+        k_i, nk_i = x.shape[0], P.shape[0]
+        x_pad[i, :k_i, :]    = x
+        P_pad[i, :nk_i, :k_i] = P
+
+    # turn n,m,k lists into (B,1) float tensors
+    n_t = torch.tensor(n_list, dtype=torch.float32).unsqueeze(1)
+    m_t = torch.tensor(m_list, dtype=torch.float32).unsqueeze(1)
+    k_t = torch.tensor(k_list, dtype=torch.float32).unsqueeze(1)
+
+    return x_pad, P_pad, h_pad, y_pad, n_t, m_t, k_t
 
 
-class RawResultsDataset(Dataset):
-    """Dataset that returns raw random_x, P, m_heights, and target."""
+class ResultsDataset(Dataset):
     def __init__(self, df):
-        self.random_x = [np.array(x, dtype=np.float32) for x in df['random_x']]
-        self.P = []
-        for idx, row in df.iterrows():
-            k = row['k']
-            n = row['n']
+        self.random_x = [
+            torch.from_numpy(x.T).float()
+            for x in df['random_x']
+        ]
+        self.P = [
+            torch.from_numpy(np.array(P).T).float()
+            for P in df['P']
+        ]
+        self.heights = [
+            torch.from_numpy(h).float()
+            for h in df['m_heights']
+        ]
+        self.targets = torch.tensor(
+            df['result'].values, dtype=torch.float32
+        ).unsqueeze(1)
 
-            P_arr = np.array(row['P'], dtype=np.float32).reshape((k, n - k))
-            self.P.append(P_arr)
-        self.m_heights = [np.array(h, dtype=np.float32) for h in df['m_heights']]
-        self.targets = df['result'].astype(np.float32).tolist()
-        self.n = df["n"]
-        self.m = df["m"]
-        self.k = df["k"]
+        # per-sample ints
+        self.n_list = df['n'].astype(int).tolist()
+        self.m_list = df['m'].astype(int).tolist()
+        self.k_list = df['k'].astype(int).tolist()
 
     def __len__(self):
         return len(self.targets)
 
     def __getitem__(self, idx):
-        return self.random_x[idx], self.P[idx], self.m_heights[idx], self.targets[idx], self.n[idx], self.m[idx], self.k[idx]
-
-
+        return (
+            self.random_x[idx],   # (k_i, 10)
+            self.P[idx],          # (n_i-k_i, k_i)
+            self.heights[idx],    # (10,)
+            self.targets[idx],    # (1,)
+            self.n_list[idx],     # int
+            self.m_list[idx],     # int
+            self.k_list[idx]      # int
+        )
+    
 class Log2Loss(nn.Module):
     def forward(self, y_pred, y_true):
         y_pred = torch.clamp(y_pred, min=1)
@@ -66,35 +84,58 @@ class Log2Loss(nn.Module):
         return torch.mean((torch.log2(y_pred) - torch.log2(y_true)) ** 2)
 
 
-class TransformerNetNoPE(nn.Module):
-    def __init__(self, feature_dim, d_model=512, nhead=8, num_layers=6, mlp_hidden=2048, dropout=0.1):
+class TransformerWithP(nn.Module):
+    def __init__(self, max_k, max_nk,
+                 d_model=512, nhead=8, num_layers=6,
+                 mlp_hidden=2048, dropout=0.1):
         super().__init__()
-        self.input_proj = nn.Linear(feature_dim, d_model)
+        # project each token‑type
+        self.x_proj = nn.Linear(10,      d_model)  # x_tokens have 10 features
+        self.P_proj = nn.Linear(max_k,   d_model)  # P_tokens have max_k features
+
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, nhead=nhead, dim_feedforward=mlp_hidden,
+            d_model=d_model, nhead=nhead,
+            dim_feedforward=mlp_hidden,
             dropout=dropout, activation="relu"
         )
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.transformer = nn.TransformerEncoder(
+            encoder_layer, num_layers=num_layers
+        )
+
+        # final MLP: pooled + heights(10) + 
         self.mlp_head = nn.Sequential(
-            nn.Linear(d_model + 10, mlp_hidden),
+            nn.Linear(d_model + 10 + 3, mlp_hidden),
             nn.BatchNorm1d(mlp_hidden), nn.ReLU(), nn.Dropout(0.3),
-            nn.Linear(mlp_hidden, mlp_hidden), nn.ReLU(),
-            nn.Linear(mlp_hidden, mlp_hidden), nn.BatchNorm1d(mlp_hidden), nn.ReLU(),
-            nn.Dropout(0.3), nn.Linear(mlp_hidden, mlp_hidden), nn.ReLU(),
             nn.Linear(mlp_hidden, 1)
         )
 
-    def forward(self, x_tokens, heights, n, m, k):
-        # x_tokens: (B, seq_len, feature_dim)
-        B, L, F = x_tokens.shape
-        x = self.input_proj(x_tokens)        # (B, L, d_model)
-        x = x.permute(1, 0, 2)               # (L, B, d_model)
-        x = self.transformer_encoder(x)      # (L, B, d_model)
-        x = x.permute(1, 0, 2)               # (B, L, d_model)
-        pooled = x.mean(dim=1)               # (B, d_model)
-        out = torch.cat([pooled, heights], dim=1)  # (B, d_model+10)
-        return self.mlp_head(out)
+    def forward(self, x_seq, P_seq, heights, n, m, k):
+        """
+        x_seq:  (B, max_k,   10)
+        P_seq:  (B, max_nk,  max_k)
+        heights:(B, 10)
+        n,m,k:  (B, 1) floats
+        """
+        B = x_seq.size(0)
 
+        # embed tokens
+        x_emb = self.x_proj(x_seq)    # → (B, max_k,  d_model)
+        P_emb = self.P_proj(P_seq)    # → (B, max_nk, d_model)
+
+        # concatenate along time
+        seq = torch.cat([x_emb, P_emb], dim=1)  # → (B, max_k+max_nk, d_model)
+        seq = seq.permute(1, 0, 2)              # → (S, B, d_model)
+        enc = self.transformer(seq)             # → (S, B, d_model)
+        enc = enc.permute(1, 0, 2)              # → (B, S, d_model)
+
+        # mean‑pool over time
+        pooled = enc.mean(dim=1)                # → (B, d_model)
+
+        # concat pooled + heights + [n,m,k]
+        scalar_feats = torch.cat([n, m, k], dim=1)  # → (B,3)
+        all_feats = torch.cat([pooled, heights, scalar_feats], dim=1)
+
+        return self.mlp_head(all_feats)         # → (B,1)
 
 def create_dataset(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     print("Creating datasets")
@@ -121,7 +162,7 @@ def create_dataset(df, n_lower, n_upper, k_lower, k_upper, m_lower):
 
     df["random_x"] = random_x_list
     df["m_heights"] = m_heights_list
-    dataset = RawResultsDataset(df)
+    dataset = ResultsDataset(df)
     train_idx, val_idx = train_test_split(list(range(len(dataset))),test_size=0.2, random_state=69)
     train_ds = torch.utils.data.Subset(dataset, train_idx)
     val_ds = torch.utils.data.Subset(dataset, val_idx)
@@ -137,7 +178,7 @@ def train(datasets, num_epochs, learning_rate):
     val_loader   = datasets['val_loader']
     feature_dim  = datasets['feature_dim']
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    net = TransformerNetNoPE(feature_dim=feature_dim).to(device)
+    net = TransformerWithP(feature_dim=feature_dim).to(device)
     if torch.cuda.device_count() > 1:
         net = nn.DataParallel(net)
     criterion = Log2Loss()
@@ -147,10 +188,10 @@ def train(datasets, num_epochs, learning_rate):
     for epoch in range(num_epochs):
         net.train()
         total_loss = 0
-        for x_tokens, heights, y, n, m, k in train_loader:
-            x_tokens, heights, y, n, m, k = x_tokens.to(device), heights.to(device), y.to(device), n.to(device), m.to(device),k.to(device)
+        for x_tokens, P_seq, heights, y, n, m, k in train_loader:
+            x_tokens, P_seq, heights, y, n, m, k = x_tokens.to(device), P_seq.to(device), heights.to(device), y.to(device), n.to(device), m.to(device),k.to(device)
             optimizer.zero_grad()
-            preds = net(x_tokens, heights, n, m, k)
+            preds = net(x_tokens,P_seq, heights, n, m, k)
             loss = criterion(preds, y)
             loss.backward()
             optimizer.step()
@@ -160,9 +201,9 @@ def train(datasets, num_epochs, learning_rate):
         all_preds = []
         all_targets = []
         with torch.no_grad():
-            for x_tokens, heights, y, n, m, k in val_loader:
-                x_tokens, heights, y, n, m, k = x_tokens.to(device), heights.to(device), y.to(device), n.to(device), m.to(device), k.to(device)
-                preds = net(x_tokens, heights).clamp(min=1)
+            for x_tokens, P_seq, heights, y, n, m, k in val_loader:
+                x_tokens, P_seq, heights, y, n, m, k = x_tokens.to(device), P_seq.to(device), heights.to(device), y.to(device), n.to(device), m.to(device), k.to(device)
+                preds = net(x_tokens,P_seq, heights, n, m, k).clamp(min=1)
                 all_preds.append(preds)
                 all_targets.append(y)
 
