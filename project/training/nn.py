@@ -40,7 +40,12 @@ class RawResultsDataset(Dataset):
     """Dataset that returns raw random_x, P, m_heights, and target."""
     def __init__(self, df):
         self.random_x = [np.array(x, dtype=np.float32) for x in df['random_x']]
-        self.P = [np.array(P, dtype=np.float32) for P in df['P']]
+        self.P = []
+        for idx, row in df.iterrows():
+            k = row['k']
+            n = row['n']
+            P_arr = np.array(row['P'], dtype=np.float32).reshape((k, n - k))
+            self.P.append(P_arr)
         self.m_heights = [np.array(h, dtype=np.float32) for h in df['m_heights']]
         self.targets = df['result'].astype(np.float32).tolist()
 
@@ -90,6 +95,29 @@ class TransformerNetNoPE(nn.Module):
 
 def create_dataset(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     print("Creating datasets")
+    random_x_list = []
+    m_heights_list = []
+
+    for idx, row in df.iterrows():
+        k = row["k"]
+        n = row["n"]
+        m = row["m"]
+        row_P = np.array(row["P"], dtype=np.float32).reshape((k, n - k))
+        x_dim = k
+
+        curr_random_x = []
+        curr_m_heights = []
+        for _ in range(10):
+            x_rand = np.random.uniform(low=-10, high=10, size=(x_dim,))
+            curr_random_x.append(x_rand)
+            m_height = calculate_m_height(x_rand, m, row_P)
+            curr_m_heights.append(m_height)
+            
+        random_x_list.append(curr_random_x)
+        m_heights_list.append(curr_m_heights)
+
+    df["random_x"] = random_x_list
+    df["m_heights"] = m_heights_list
     dataset = RawResultsDataset(df)
     train_idx, val_idx = train_test_split(list(range(len(dataset))), test_size=0.2, random_state=42)
     train_ds = torch.utils.data.Subset(dataset, train_idx)
@@ -144,7 +172,7 @@ def train(datasets, num_epochs, learning_rate):
 
 
 def main():
-    df = joblib.load("large_results_dataframe.pkl")
+    df = joblib.load("results_subset_1M.pkl")
     datasets = create_dataset(df, 9, 10, 4, 6, 2)
     train(datasets, num_epochs=50, learning_rate=1e-4)
 
