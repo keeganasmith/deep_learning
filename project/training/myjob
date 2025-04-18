@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=deep_learning
 #SBATCH --time=2-00:00:00
-#SBATCH --ntasks-per-node=192
-#SBATCH --cpus-per-task=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=192
 #SBATCH --exclusive
 #SBATCH --partition=staff
 #SBATCH --gres=gpu:a30:2
@@ -14,4 +14,4 @@ cd /scratch/user/u.ks124812/CSCE636/project/
 source modules.sh
 source venv/bin/activate
 cd training
-srun torchrun --nnodes=1 --nproc_per_node=2 nn.py
+python3 nn.py

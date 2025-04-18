@@ -21,7 +21,7 @@ def collate_pad(batch):
     B = len(batch)
     x_pad = torch.zeros(B, 10, max_k, dtype=torch.float32)
     P_pad = torch.zeros(B, max_nk, max_k, dtype=torch.float32)
-    h_pad = torch.zeros(B, 10,     dtype=torch.float32)
+    h_pad = torch.zeros(B, 10, dtype=torch.float32)
 
     for i, (x_np, P_np, h_np, tgt) in enumerate(batch):
         k = x_np.shape[1]
@@ -31,9 +31,8 @@ def collate_pad(batch):
         P_full[:k, :nk] = torch.from_numpy(P_np)
         P_pad[i] = P_full[:max_k, :max_nk].T
         h_pad[i] = torch.from_numpy(h_np)
-    x_tokens = torch.cat([x_pad, P_pad], dim=1)  # shape (B, 10+max_nk, max_k)
     y = torch.tensor(targets, dtype=torch.float32).unsqueeze(1)
-    return x_tokens, h_pad, y
+    return x_pad,P_pad, h_pad, y
 
 
 class RawResultsDataset(Dataset):
@@ -44,16 +43,20 @@ class RawResultsDataset(Dataset):
         for idx, row in df.iterrows():
             k = row['k']
             n = row['n']
+
             P_arr = np.array(row['P'], dtype=np.float32).reshape((k, n - k))
             self.P.append(P_arr)
         self.m_heights = [np.array(h, dtype=np.float32) for h in df['m_heights']]
         self.targets = df['result'].astype(np.float32).tolist()
+        self.n = df["n"]
+        self.m = df["m"]
+        self.k = df["k"]
 
     def __len__(self):
         return len(self.targets)
 
     def __getitem__(self, idx):
-        return self.random_x[idx], self.P[idx], self.m_heights[idx], self.targets[idx]
+        return self.random_x[idx], self.P[idx], self.m_heights[idx], self.targets[idx], self.n[idx], self.m[idx], self.k[idx]
 
 
 class Log2Loss(nn.Module):
@@ -81,7 +84,7 @@ class TransformerNetNoPE(nn.Module):
             nn.Linear(mlp_hidden, 1)
         )
 
-    def forward(self, x_tokens, heights):
+    def forward(self, x_tokens, heights, n, m, k):
         # x_tokens: (B, seq_len, feature_dim)
         B, L, F = x_tokens.shape
         x = self.input_proj(x_tokens)        # (B, L, d_model)
@@ -119,7 +122,7 @@ def create_dataset(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     df["random_x"] = random_x_list
     df["m_heights"] = m_heights_list
     dataset = RawResultsDataset(df)
-    train_idx, val_idx = train_test_split(list(range(len(dataset))), test_size=0.2, random_state=42)
+    train_idx, val_idx = train_test_split(list(range(len(dataset))),test_size=0.2, random_state=69)
     train_ds = torch.utils.data.Subset(dataset, train_idx)
     val_ds = torch.utils.data.Subset(dataset, val_idx)
     train_loader = DataLoader(train_ds, batch_size=512, collate_fn=collate_pad, num_workers=8, pin_memory=True)
@@ -144,25 +147,30 @@ def train(datasets, num_epochs, learning_rate):
     for epoch in range(num_epochs):
         net.train()
         total_loss = 0
-        for x_tokens, heights, y in train_loader:
-            x_tokens, heights, y = x_tokens.to(device), heights.to(device), y.to(device)
+        for x_tokens, heights, y, n, m, k in train_loader:
+            x_tokens, heights, y, n, m, k = x_tokens.to(device), heights.to(device), y.to(device), n.to(device), m.to(device),k.to(device)
             optimizer.zero_grad()
-            preds = net(x_tokens, heights)
+            preds = net(x_tokens, heights, n, m, k)
             loss = criterion(preds, y)
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
         print(f"Epoch {epoch+1}/{num_epochs} Train loss: {total_loss/len(train_loader):.4f}")
         net.eval()
-        sigmas = []
+        all_preds = []
+        all_targets = []
         with torch.no_grad():
-            for x_tokens, heights, y in val_loader:
-                x_tokens, heights, y = x_tokens.to(device), heights.to(device), y.to(device)
+            for x_tokens, heights, y, n, m, k in val_loader:
+                x_tokens, heights, y, n, m, k = x_tokens.to(device), heights.to(device), y.to(device), n.to(device), m.to(device), k.to(device)
                 preds = net(x_tokens, heights).clamp(min=1)
-                log_pred = torch.log2(preds)
-                log_true = torch.log2(torch.clamp(y, min=1))
-                sigmas.append(((log_pred - log_true)**2).mean().item())
-        sigma = min(sigmas)
+                all_preds.append(preds)
+                all_targets.append(y)
+
+        all_preds = torch.cat(all_preds, dim=0)
+        all_targets = torch.cat(all_targets, dim=0)
+        log_pred = torch.log2(all_preds)
+        log_true = torch.log2(torch.clamp(all_targets, min=1))
+        sigma = ((log_pred - log_true) ** 2).mean().item()
         print(f"Validation sigma: {sigma:.4f}")
         if sigma < best_sigma:
             best_sigma = sigma
@@ -172,7 +180,7 @@ def train(datasets, num_epochs, learning_rate):
 
 
 def main():
-    df = joblib.load("results_subset_1M.pkl")
+    df = joblib.load("results_dataframe.pkl")
     datasets = create_dataset(df, 9, 10, 4, 6, 2)
     train(datasets, num_epochs=50, learning_rate=1e-4)
 
