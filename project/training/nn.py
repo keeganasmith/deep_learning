@@ -55,40 +55,41 @@ class ResultsDataset(Dataset):
 
 
 class Net(nn.Module):
-    def __init__(self, input_size):
+    def __init__(self, input_size, encoded_size=2048):
         super(Net, self).__init__()
+        
+        self.encoder = nn.Sequential(
+            nn.Linear(input_size, encoded_size),
+            nn.BatchNorm1d(encoded_size),
+            nn.ReLU(),
+        )
+        
         self.model = nn.Sequential(
-            nn.Linear(input_size, 2048),
+            nn.Linear(encoded_size, 2048),
             nn.BatchNorm1d(2048),
             nn.ReLU(),
             nn.Dropout(0.3),
-                        
+
             nn.Linear(2048, 2048),
-            nn.BatchNorm1d(2048),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-             
+            nn.ReLU(),  
+
             nn.Linear(2048, 2048),
-            nn.BatchNorm1d(2048),
+            nn.BatchNorm1d(2048), 
             nn.ReLU(),
-            nn.Dropout(0.3),
-        
+
             nn.Linear(2048, 2048),
-            nn.BatchNorm1d(2048),
             nn.ReLU(),
             nn.Dropout(0.3),
-        
+
             nn.Linear(2048, 2048),
-            nn.BatchNorm1d(2048),
             nn.ReLU(),
-            nn.Dropout(0.3),
-        
 
             nn.Linear(2048, 1)
-        
         )
 
+
     def forward(self, x):
+        x = self.encoder(x)
         return self.model(x)
 
 # Load data
