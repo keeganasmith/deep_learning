@@ -166,7 +166,7 @@ def train(datasets, num_epochs, learning_rate):
     if torch.cuda.device_count() > 1:
         net = nn.DataParallel(net)
     criterion = Log2Loss()
-    optimizer = optim.Adam(net.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(net.parameters(), lr=learning_rate, weight_decay=1e-4)
     best_sigma = float('inf')
     best_model = None
     for epoch in range(num_epochs):
@@ -211,7 +211,7 @@ def train(datasets, num_epochs, learning_rate):
 def main():
     df = joblib.load("results_subset_1M.pkl")
     datasets = create_dataset(df, 9, 10, 4, 6, 2)
-    train(datasets, num_epochs=50, learning_rate=.001)
+    train(datasets, num_epochs=50, learning_rate=.0001)
 
 if __name__ == "__main__":
     main()
