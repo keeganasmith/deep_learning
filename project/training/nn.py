@@ -74,13 +74,10 @@ class Log2Loss(nn.Module):
     
 class TransformerWithP(nn.Module):
     def __init__(self, max_k, max_nk,
-                 d_model=256, nhead=4, num_layers=2,
+                 d_model=512, nhead=8, num_layers=1,
                  mlp_hidden=512, dropout=0.1):
         super().__init__()
-        # 1) embed each P row into d_model
-        self.P_proj  = nn.Linear(max_k,   d_model)
-        # 2) positional embeddings for up to max_nk rows
-        self.pos_emb = nn.Embedding(max_nk, d_model)
+        self.P_proj = nn.Linear(max_k, d_model)
 
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model,
@@ -91,17 +88,16 @@ class TransformerWithP(nn.Module):
             batch_first=True
         )
         self.transformer = nn.TransformerEncoder(
-            encoder_layer, num_layers=num_layers
+            encoder_layer,
+            num_layers=num_layers
         )
 
-        # 3) one-dim scoring for attention pooling
-        self.attn_pool = nn.Linear(d_model, 1, bias=False)
-
-        # 4) final MLP head: (pooled_d + 3 scalars) → 1
+        # Now the head input size is (mean_pool + max_pool) = 2*d_model, plus 3 scalars
         self.mlp_head = nn.Sequential(
-            nn.Linear(d_model + 3, mlp_hidden),
+            nn.Linear(2 * d_model + 3, mlp_hidden),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Linear(mlp_hidden, mlp_hidden),
+            nn.ReLU(),
             nn.Linear(mlp_hidden, 1)
         )
 
@@ -111,30 +107,32 @@ class TransformerWithP(nn.Module):
         n,m,k:    (B, 1)
         pad_mask: (B, max_nk)    # True = padding rows
         """
-        B, S, _ = P_seq.shape
+        # 1) embed and encode
+        P_emb = self.P_proj(P_seq)  # → (B, S, d_model)
+        enc   = self.transformer(P_emb, src_key_padding_mask=pad_mask)  # → (B, S, d_model)
 
-        #––– 1) token + position embedding
-        P_emb = self.P_proj(P_seq)   # (B, S, d_model)
-        ids   = torch.arange(S, device=P_emb.device)  \
-                    .unsqueeze(0).expand(B, -1)      # (B, S)
-        P_emb = P_emb + self.pos_emb(ids)            # add pos info
+        # 2) build a mask tensor
+        valid       = (~pad_mask).unsqueeze(-1).float()  # (B, S, 1)
+        enc_masked  = enc * valid                       # zero out padding
 
-        #––– 2) Transformer encoder (skips padded rows)
-        enc = self.transformer(P_emb, src_key_padding_mask=pad_mask)
-        # enc: (B, S, d_model)
+        # 3) MEAN pooling
+        sum_enc     = enc_masked.sum(dim=1)             # (B, d_model)
+        counts      = valid.sum(dim=1).clamp(min=1)     # (B, 1)
+        mean_pool   = sum_enc / counts                  # (B, d_model)
 
-        #––– 3) Attention pooling over rows
-        scores = self.attn_pool(enc).squeeze(-1)      # (B, S)
-        scores = scores.masked_fill(pad_mask, -1e9)   # ignore padding
-        weights = torch.softmax(scores, dim=1).unsqueeze(-1)  # (B, S, 1)
-        pooled  = (enc * weights).sum(dim=1)          # (B, d_model)
+        # 4) MAX pooling
+        #    mask out padded rows so they don't become the max
+        neg_inf     = torch.finfo(enc.dtype).min
+        enc_for_max = enc.masked_fill(pad_mask.unsqueeze(-1), neg_inf)
+        max_pool, _ = enc_for_max.max(dim=1)            # (B, d_model)
 
-        #––– 4) concat your 3 scalars
-        scalars = torch.cat([n, m, k], dim=1)         # (B, 3)
-        feats   = torch.cat([pooled, scalars], dim=1) # (B, d_model+3)
+        # 5) concat pools + scalars
+        pooled      = torch.cat([mean_pool, max_pool], dim=1)  # (B, 2*d_model)
+        scalars     = torch.cat([n, m, k], dim=1)             # (B, 3)
+        all_feats   = torch.cat([pooled, scalars], dim=1)     # (B, 2*d_model + 3)
 
-        #––– 5) MLP to one final output
-        return self.mlp_head(feats)                   # (B, 1)
+        # 6) final MLP → (B,1)
+        return self.mlp_head(all_feats)
 
        
 def create_dataset(df, n_lower, n_upper, k_lower, k_upper, m_lower):
