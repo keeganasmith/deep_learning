@@ -67,9 +67,11 @@ class ResultsDataset(Dataset):
     
 class Log2Loss(nn.Module):
     def forward(self, y_pred, y_true):
-        y_pred = torch.clamp(y_pred, min=1)
-        y_true = torch.clamp(y_true, min=1)
-        return torch.mean((torch.log2(y_pred) - torch.log2(y_true)) ** 2)
+        eps = 1e-6
+        log_p = torch.log2(y_pred.clamp(min=eps))   # clamp for numerical safety
+        log_t = torch.log2(y_true.clamp(min=eps))
+        return torch.mean((log_p - log_t) ** 2)
+    
 class TransformerWithP(nn.Module):
     def __init__(self, max_k, max_nk,
                  d_model=512, nhead=8, num_layers=1,
@@ -101,40 +103,35 @@ class TransformerWithP(nn.Module):
 
     def forward(self, P_seq, n, m, k, pad_mask):
         """
-        P_seq:   (B, max_nk, max_k)
-        n, m, k: (B, 1)
-        pad_mask: (B, max_nk)
+        P_seq:    (B, max_nk, max_k)
+        n, m, k:  (B, 1)
+        pad_mask: (B, max_nk)   # True = padding, False = data
         """
 
-        # 1. Project P into d_model
-        P_emb = self.P_proj(P_seq)  # (B, max_nk, d_model)
+        # 1) Project each row of P
+        #    → (B, max_nk, d_model)
+        P_emb = self.P_proj(P_seq)
 
-        # 2. Transformer Encoder
-        enc = self.transformer(P_emb, src_key_padding_mask=pad_mask)  # (B, max_nk, d_model)
+        # 2) Transformer encoder (it will skip padded rows)
+        #    → (B, max_nk, d_model)
+        enc = self.transformer(P_emb, src_key_padding_mask=pad_mask)
 
-        # 3. Masked mean pooling over rows
-        valid_mask = ~pad_mask  # (B, max_nk)
-        valid_mask_float = valid_mask.unsqueeze(-1).float()  # (B, max_nk, 1)
+        # 3) Masked mean pooling over the sequence dimension:
+        #    (so padding rows don't dilute your average)
+        valid = (~pad_mask).unsqueeze(-1).float()  # (B, max_nk, 1)
+        enc_masked = enc * valid                  # zero out padding
+        sum_enc = enc_masked.sum(dim=1)           # (B, d_model)
+        counts  = valid.sum(dim=1).clamp(min=1)   # (B, 1)
+        pooled  = sum_enc / counts                # (B, d_model)
 
-        # Mask out padded rows
-        enc_masked = enc * valid_mask_float  # (B, max_nk, d_model)
+        # 4) Concatenate your per-sample scalars
+        #    → (B, d_model + 3)
+        scalar_feats = torch.cat([n, m, k], dim=1)
+        all_feats    = torch.cat([pooled, scalar_feats], dim=1)
 
-        # Sum over rows
-        pooled_sum = enc_masked.sum(dim=1)  # (B, d_model)
+        # 5) One final MLP to (B,1)
+        return self.mlp_head(all_feats)
 
-        # Divide by number of valid rows
-        valid_counts = valid_mask.sum(dim=1).clamp(min=1).unsqueeze(1)  # (B, 1)
-        pooled_enc = pooled_sum / valid_counts  # (B, d_model)
-
-        # 4. Concatenate scalar features
-        scalar_feats = torch.cat([n, m, k], dim=1)  # (B, 3)
-
-        all_feats = torch.cat([pooled_enc, scalar_feats], dim=1)  # (B, d_model + 3)
-
-        # 5. MLP to predict one value per sample
-        output = self.mlp_head(all_feats)  # (B, 1)
-
-        return output
        
 def create_dataset(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     print("Creating datasets")
