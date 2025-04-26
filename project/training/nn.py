@@ -19,7 +19,7 @@ def collate_pad(batch):
     B = len(batch)
 
     P_pad = torch.zeros(B, max_nk,  max_k, dtype=torch.float32)
-    y = torch.cat(y_list, dim=0)
+    y = torch.stack(y_list, dim=0)
 
     n_t = torch.tensor(n_list, dtype=torch.float32).unsqueeze(1)
     m_t = torch.tensor(m_list, dtype=torch.float32).unsqueeze(1)
