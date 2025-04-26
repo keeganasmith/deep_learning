@@ -174,12 +174,7 @@ def train(datasets, num_epochs, learning_rate):
             P_seq, y, n, m, k, mask = P_seq.to(device), y.to(device), n.to(device),m.to(device),k.to(device), mask.to(device)
             optimizer.zero_grad()
             preds = net(P_seq, n, m, k, mask)
-            print(preds.shape)  # should be (B, 1)
-            print(y.shape)      # should be (B, 1)
-
-            print(preds[:5])    # check values, should vary a bit
-            print(y[:5])        # check values, should vary
-
+            
             loss = criterion(preds, y)
             loss.backward()
             optimizer.step()
