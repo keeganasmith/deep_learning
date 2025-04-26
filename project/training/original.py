@@ -22,8 +22,8 @@ class Log2Loss(nn.Module):
         super(Log2Loss, self).__init__()
 
     def forward(self, y_pred, y_true):
-        y_pred = torch.clamp(y_pred, min=1)
-        y_true = torch.clamp(y_true, min=1)
+        y_pred = torch.clamp(y_pred, min=.00001)
+        y_true = torch.clamp(y_true, min=.00001)
         log_pred = torch.log2(y_pred)
         log_true = torch.log2(y_true)
         return torch.mean((log_pred - log_true) ** 2)
