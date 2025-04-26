@@ -9,55 +9,41 @@ import joblib
 import matplotlib.pyplot as plt
 import copy
 from m_height import calculate_m_height  # (x, m, p)
-
-# Custom collate to pad random_x and P columns into a unified token sequence
 def collate_pad(batch):
-    x_list, P_list, h_list, y_list, n_list, m_list, k_list = zip(*batch)
+    P_list, y_list, n_list, m_list, k_list = zip(*batch)
 
-    k_vals  = [x.shape[0] for x in x_list]
     nk_vals = [P.shape[0] for P in P_list]
-    max_k, max_nk = max(k_vals), max(nk_vals)
+    k_vals = [P.shape[1] for P in P_list]
+    max_k = max(k_vals)
+    max_nk = max(nk_vals)
     B = len(batch)
 
-    x_pad = torch.zeros(B, max_k,    10,    dtype=torch.float32)
-    P_pad = torch.zeros(B, max_nk,   max_k, dtype=torch.float32)
-    h_pad = torch.stack(h_list, dim=0)         # (B, 10)
-    y     = torch.cat(y_list,     dim=0)       # (B, 1)
+    P_pad = torch.zeros(B, max_nk,  max_k, dtype=torch.float32)
+    y = torch.cat(y_list, dim=0)
 
     n_t = torch.tensor(n_list, dtype=torch.float32).unsqueeze(1)
     m_t = torch.tensor(m_list, dtype=torch.float32).unsqueeze(1)
     k_t = torch.tensor(k_list, dtype=torch.float32).unsqueeze(1)
+    pad_mask = torch.ones(B, max_nk, dtype=torch.bool)
 
-    for i, (x_seq, P_seq) in enumerate(zip(x_list, P_list)):
-        k_i, nk_i = x_seq.shape[0], P_seq.shape[0]
-        x_pad[i, :k_i, :]    = x_seq
+    for i, P_seq in enumerate(P_list):
+        nk_i = P_seq.shape[0]
+        k_i = P_seq.shape[1]
         P_pad[i, :nk_i, :k_i] = P_seq
-
-    lengths = [x.shape[0] + P.shape[0] for x, P in zip(x_list, P_list)]
-    max_len  = max_k + max_nk
-    pad_mask = torch.ones(B, max_len, dtype=torch.bool)
-    for i, L in enumerate(lengths):
-        pad_mask[i, :L] = False   # False = attend, True = ignore
-
-    return x_pad, P_pad, h_pad, y, n_t, m_t, k_t, pad_mask
+        pad_mask[i, :nk_i] = False
+        
+    return  P_pad, y, n_t, m_t, k_t, pad_mask
 
 class ResultsDataset(Dataset):
     def __init__(self, df):
-        self.random_x = []
-        for x_list in df['random_x']:
-            x_arr = np.stack(x_list, axis=0)
-            self.random_x.append(torch.from_numpy(x_arr.T).float())
-        
+       
         self.P = []
         for raw_P, k, n in zip(df['P'], df['k'], df['n']):
             arr = np.array(raw_P, dtype=np.float32).reshape((k, n - k))
-            P_seq = torch.from_numpy(arr.T).float()          # → (n-k, k)
+            P_seq = torch.from_numpy(arr.T).float()     
             self.P.append(P_seq)
 
-        self.heights = [
-            torch.from_numpy(np.array(h)).float()
-            for h in df['m_heights']
-        ]
+        
         self.targets = torch.tensor(
             df['result'].values, dtype=torch.float32
         ).unsqueeze(1)
@@ -72,9 +58,7 @@ class ResultsDataset(Dataset):
 
     def __getitem__(self, idx):
         return (
-            self.random_x[idx],   # (k_i, 10)
             self.P[idx],          # (n_i-k_i, k_i)
-            self.heights[idx],    # (10,)
             self.targets[idx],    # (1,)
             self.n_list[idx],     # int
             self.m_list[idx],     # int
@@ -88,10 +72,9 @@ class Log2Loss(nn.Module):
         return torch.mean((torch.log2(y_pred) - torch.log2(y_true)) ** 2)
 class TransformerWithP(nn.Module):
     def __init__(self, max_k, max_nk,
-                 d_model=512, nhead=8, num_layers=6,
-                 mlp_hidden=1024, dropout=0.1):
+                 d_model=512, nhead=8, num_layers=1,
+                 mlp_hidden=512, dropout=0.1):
         super().__init__()
-        self.x_proj = nn.Linear(10, d_model)          # random_x tokens
         self.P_proj = nn.Linear(max_k, d_model)       # P tokens
 
         encoder_layer = nn.TransformerEncoderLayer(
@@ -108,45 +91,53 @@ class TransformerWithP(nn.Module):
         )
 
         self.mlp_head = nn.Sequential(
-            nn.Linear(d_model* 2 + 10 + 3, mlp_hidden),
-            nn.BatchNorm1d(mlp_hidden), nn.ReLU(), nn.Dropout(0.3),
+            nn.Linear(d_model + 3, mlp_hidden),
+            nn.ReLU(),
             nn.Linear(mlp_hidden, mlp_hidden), nn.ReLU(),
-            nn.Linear(mlp_hidden, mlp_hidden), nn.BatchNorm1d(mlp_hidden), nn.ReLU(),
-            nn.Dropout(0.3), nn.Linear(mlp_hidden, mlp_hidden), nn.ReLU(),
+            nn.Linear(mlp_hidden, mlp_hidden), nn.ReLU(),
+            nn.Linear(mlp_hidden, mlp_hidden), nn.ReLU(),
             nn.Linear(mlp_hidden, 1)
         ) 
 
-    def forward(self, x_seq, P_seq, heights, n, m, k, pad_mask):
+    def forward(self, P_seq, n, m, k, pad_mask):
         """
-        x_seq:   (B, max_k,   10)
-        P_seq:   (B, max_nk,  max_k)
-        heights: (B, 10)
+        P_seq:   (B, max_nk, max_k)
         n, m, k: (B, 1)
-        pad_mask:(B, max_k+max_nk)
+        pad_mask: (B, max_nk)
         """
-        x_emb = self.x_proj(x_seq)    # (B, max_k,   d_model)
-        P_emb = self.P_proj(P_seq)    # (B, max_nk,  d_model)
 
-        seq = torch.cat([x_emb, P_emb], dim=1)   # (B, S, d_model)
-        enc = self.transformer(seq, src_key_padding_mask=pad_mask)
+        # 1. Project P into d_model
+        P_emb = self.P_proj(P_seq)  # (B, max_nk, d_model)
 
-        k_len = x_emb.size(1)
-        x_enc = enc[:, :k_len, :]    # (B, max_k,   d_model)
-        P_enc = enc[:, k_len:, :]    # (B, max_nk,  d_model)
+        # 2. Transformer Encoder
+        enc = self.transformer(P_emb, src_key_padding_mask=pad_mask)  # (B, max_nk, d_model)
 
-        pooled_x = x_enc.mean(dim=1)   # mean-pool over x columns -> (B, d_model)
-        pooled_P = P_enc.mean(dim=1) # max-pool over P columns  -> (B, d_model)
+        # 3. Masked mean pooling over rows
+        valid_mask = ~pad_mask  # (B, max_nk)
+        valid_mask_float = valid_mask.unsqueeze(-1).float()  # (B, max_nk, 1)
 
-        scalar_feats = torch.cat([n, m, k], dim=1)          # (B, 3)
-        all_feats    = torch.cat([pooled_x, pooled_P, heights, scalar_feats], dim=1)
+        # Mask out padded rows
+        enc_masked = enc * valid_mask_float  # (B, max_nk, d_model)
 
-        return self.mlp_head(all_feats)  # (B, 1)
+        # Sum over rows
+        pooled_sum = enc_masked.sum(dim=1)  # (B, d_model)
 
+        # Divide by number of valid rows
+        valid_counts = valid_mask.sum(dim=1).clamp(min=1).unsqueeze(1)  # (B, 1)
+        pooled_enc = pooled_sum / valid_counts  # (B, d_model)
 
+        # 4. Concatenate scalar features
+        scalar_feats = torch.cat([n, m, k], dim=1)  # (B, 3)
+
+        all_feats = torch.cat([pooled_enc, scalar_feats], dim=1)  # (B, d_model + 3)
+
+        # 5. MLP to predict one value per sample
+        output = self.mlp_head(all_feats)  # (B, 1)
+
+        return output
+       
 def create_dataset(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     print("Creating datasets")
-    random_x_list = []
-    m_heights_list = []
 
     for idx, row in df.iterrows():
         k = row["k"]
@@ -155,19 +146,7 @@ def create_dataset(df, n_lower, n_upper, k_lower, k_upper, m_lower):
         row_P = np.array(row["P"], dtype=np.float32).reshape((k, n - k))
         x_dim = k
 
-        curr_random_x = []
-        curr_m_heights = []
-        for _ in range(10):
-            x_rand = np.random.uniform(low=-10, high=10, size=(x_dim,))
-            curr_random_x.append(x_rand)
-            m_height = calculate_m_height(x_rand, m, row_P)
-            curr_m_heights.append(m_height)
-            
-        random_x_list.append(curr_random_x)
-        m_heights_list.append(curr_m_heights)
 
-    df["random_x"] = random_x_list
-    df["m_heights"] = m_heights_list
     dataset = ResultsDataset(df)
     train_idx, val_idx = train_test_split(list(range(len(dataset))),test_size=0.2, random_state=69)
     train_ds = torch.utils.data.Subset(dataset, train_idx)
@@ -194,10 +173,16 @@ def train(datasets, num_epochs, learning_rate):
     for epoch in range(num_epochs):
         net.train()
         total_loss = 0
-        for x_tokens, P_seq, heights, y, n, m, k, mask in train_loader:
-            x_tokens, P_seq, heights, y, n, m, k, mask = x_tokens.to(device), P_seq.to(device), heights.to(device), y.to(device), n.to(device),m.to(device),k.to(device), mask.to(device)
+        for P_seq, y, n, m, k, mask in train_loader:
+            P_seq, y, n, m, k, mask = P_seq.to(device), y.to(device), n.to(device),m.to(device),k.to(device), mask.to(device)
             optimizer.zero_grad()
-            preds = net(x_tokens,P_seq, heights, n, m, k, mask)
+            preds = net(P_seq, n, m, k, mask)
+            print(preds.shape)  # should be (B, 1)
+            print(y.shape)      # should be (B, 1)
+
+            print(preds[:5])    # check values, should vary a bit
+            print(y[:5])        # check values, should vary
+
             loss = criterion(preds, y)
             loss.backward()
             optimizer.step()
@@ -206,20 +191,18 @@ def train(datasets, num_epochs, learning_rate):
         net.eval()
         sigma = 0.0
         with torch.no_grad():
-            for x_tokens, P_seq, heights, y, n, m, k, mask in val_loader:
+            for P_seq, y, n, m, k, mask in val_loader:
                 # move to GPU (or CPU)
-                x_tokens, P_seq, heights, y, n, m, k, mask = (
-                    x_tokens.to(device), P_seq.to(device),
-                    heights.to(device), y.to(device),
+                P_seq, y, n, m, k, mask = (
+                    P_seq.to(device),
+                    y.to(device),
                     n.to(device), m.to(device), k.to(device),
                     mask.to(device)
                 )
 
-                preds = net(x_tokens, P_seq, heights, n, m, k, mask)
-                # Log2Loss already does clamp(>=1) + mean((log2ŷ-log2y)²)
+                preds = net(P_seq, n, m, k, mask)
                 sigma += criterion(preds, y).item()
 
-        # average over batches
         print("length of val_loader: ", len(val_loader))
         sigma /= len(val_loader)
         print(f"Validation sigma: {sigma:.4f}")
@@ -232,9 +215,9 @@ def train(datasets, num_epochs, learning_rate):
 
 
 def main():
-    df = joblib.load("results_dataframe.pkl")
+    df = joblib.load("results_subset_1M.pkl")
     datasets = create_dataset(df, 9, 10, 4, 6, 2)
-    train(datasets, num_epochs=50, learning_rate=1e-4)
+    train(datasets, num_epochs=50, learning_rate=.001)
 
 if __name__ == "__main__":
     main()
