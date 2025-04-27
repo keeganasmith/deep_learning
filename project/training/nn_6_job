@@ -1,17 +1,17 @@
 #!/bin/bash
-#SBATCH --job-name=transformer
+#SBATCH --job-name=deep_learning
 #SBATCH --time=2-00:00:00
-#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=192
 #SBATCH --exclusive
-#SBATCH --partition=gpu
+#SBATCH --partition=staff
 #SBATCH --gres=gpu:a30:2
 #SBATCH --mem=371G
-#SBATCH --output=transformer_out
+#SBATCH --output=out
+#SBATCH --error=error
 module purge
 cd /scratch/user/u.ks124812/CSCE636/project/
 source modules.sh
 source venv/bin/activate
 cd training
-python3 nn.py
+torchrun --nnodes=1 --nproc-per-node=2 nn_6.py

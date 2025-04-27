@@ -11,7 +11,7 @@ import copy
 import torch.distributed as dist
 import datetime
 import os
-
+from m_height import calculate_m_height
 def avg(sigmas):
     total = 0
     for val in sigmas:
@@ -36,7 +36,10 @@ class ResultsDataset(Dataset):
         for _, row in df.iterrows():
             scalars = [row["n"], row["k"], row["m"]]
             p_vector = np.array(row["P"], dtype=np.float32)
-            x = np.concatenate([scalars, p_vector])
+            x_vectors = np.concat(row["random_x"])
+            x_vectors = np.array(x_vectors, dtype=np.float32)
+            heights = np.array(row["height"], dtype=np.float32)
+            x = np.concatenate([scalars, p_vector, heights])
             self.inputs.append(x)
             self.targets.append(row["result"])
 
@@ -55,33 +58,25 @@ class Net(nn.Module):
     def __init__(self, input_size):
         super(Net, self).__init__()
         self.model = nn.Sequential(
-	    nn.Linear(input_size, 2048),
-            nn.BatchNorm1d(2048),
+            nn.Linear(input_size, 2048),
             nn.ReLU(),
             nn.Dropout(0.3),
                         
-	    nn.Linear(2048, 2048),
-            nn.BatchNorm1d(2048),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-             
-	    nn.Linear(2048, 2048),
-            nn.BatchNorm1d(2048),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-        
             nn.Linear(2048, 2048),
-            nn.BatchNorm1d(2048),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-        
-            nn.Linear(2048, 2048),
-            nn.BatchNorm1d(2048),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-        
+            nn.ReLU(), 
 
-	    nn.Linear(2048, 1)
+            nn.Linear(2048, 2048),
+            nn.ReLU(),
+            nn.Dropout(.3),
+
+            nn.Linear(2048, 2048), 
+            nn.ReLU(),
+
+            nn.Linear(2048, 2048),
+            nn.ReLU(),
+            nn.Dropout(.3),        
+
+            nn.Linear(2048, 1)
         
         )
 
@@ -91,13 +86,36 @@ class Net(nn.Module):
 # Load data
 def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     print("Creating datasets")
-    datasets = {}
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    my_datasets = {}
+    df["P"] = df["P"].apply(lambda v: np.asarray(v, dtype=np.float32))
+    i = 0
     for n in range(n_lower, n_upper + 1):
         for k in range(k_lower, k_upper + 1):
+            rank_to_fire = i % world_size
+            i += 1
+            if(rank_to_fire != rank):
+                continue
             print("Creating dataset for ", n, k)
             my_df = df.loc[(df["k"] == k) & (df["n"] == n)]
+            random_x_list, m_heights_list = [], []
+            for _, row in my_df.iterrows():
+                P_mat = row["P"].reshape(k, n - k)
+                m = row["m"]
+                xs, hs = [], []
+                for _ in range(10):
+                    x_rand = np.random.uniform(-10, 10, size=(k,)).astype(np.float32)
+                    xs.append(x_rand)
+                    h = calculate_m_height(x_rand, m, P_mat).astype(np.float32)
+                    hs.append(h)
+                random_x_list.append(xs)
+                m_heights_list.append(hs)
+            my_df["random_x"] = random_x_list
+            my_df["height"]   = m_heights_list
             full_dataset = ResultsDataset(my_df)
             train_indices, val_indices = train_test_split(range(len(full_dataset)), test_size=0.2, random_state=42)
+
             
             train_subset = torch.utils.data.Subset(full_dataset, train_indices)
             val_subset = torch.utils.data.Subset(full_dataset, val_indices)
@@ -108,17 +126,28 @@ def create_datasets(df, n_lower, n_upper, k_lower, k_upper, m_lower):
             val_loader = DataLoader(val_subset, batch_size=512, num_workers=8,
                                     pin_memory=True)
             
-            if n not in datasets:
-                datasets[n] = {}
-            datasets[n][k] = {
+            
+            my_datasets.setdefault(n, {})[k] = {
                 "train_loader": train_loader,
-                "val_loader": val_loader,
-                "dataset": full_dataset
+                "val_loader":val_loader,
+                "dataset":  full_dataset
             }
+ 
 
             print("Finished dataset for ", n, k)
 
+    all_dicts = [None for _ in range(world_size)]
+    dist.all_gather_object(all_dicts, my_datasets)
+    datasets = {}
+    for d in all_dicts:
+        for n, kd in d.items():
+            datasets.setdefault(n, {})
+            for k, v in kd.items():
+                datasets[n][k] = v
+
     return datasets
+
+
 
 def train(datasets, num_epochs, learning_rate):
     world_size = dist.get_world_size()
@@ -221,11 +250,13 @@ def train(datasets, num_epochs, learning_rate):
 def main():
     print("got to main")
     dist.init_process_group(backend="nccl", init_method="env://", timeout=datetime.timedelta(seconds=60000))
+    local_rank = int(os.environ['LOCAL_RANK'])
+    torch.cuda.set_device(local_rank)
     print("finished initializing process group")
     df = joblib.load("results_dataframe.pkl")
     print("finished loading dataset")
     datasets = create_datasets(df, 9, 10, 4, 6, 2)
-    train(datasets, 50, .0001)
+    train(datasets, 50, .0005)
     dist.destroy_process_group()
 
 

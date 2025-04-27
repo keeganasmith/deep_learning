@@ -4,7 +4,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=192
 #SBATCH --exclusive
-#SBATCH --partition=staff
+#SBATCH --partition=gpu
 #SBATCH --gres=gpu:a30:2
 #SBATCH --mem=371G
 #SBATCH --output=out
@@ -14,4 +14,4 @@ cd /scratch/user/u.ks124812/CSCE636/project/
 source modules.sh
 source venv/bin/activate
 cd training
-python3 nn.py
+torchrun --nnodes=1 --nproc-per-node=2 original.py

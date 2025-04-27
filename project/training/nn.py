@@ -74,8 +74,8 @@ class Log2Loss(nn.Module):
     
 class TransformerWithP(nn.Module):
     def __init__(self, max_k, max_nk,
-                 d_model=512, nhead=8, num_layers=1,
-                 mlp_hidden=512, dropout=0.1):
+                 d_model=64, nhead=8, num_layers=2,
+                 mlp_hidden=64, dropout=0.1):
         super().__init__()
         self.P_proj = nn.Linear(max_k, d_model)
 
@@ -153,7 +153,6 @@ def create_dataset(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     train_loader = DataLoader(train_ds, batch_size=512, collate_fn=collate_pad, num_workers=8, pin_memory=True)
     val_loader = DataLoader(val_ds, batch_size=512, collate_fn=collate_pad, num_workers=8, pin_memory=True)
     feature_dim = k_upper
-    seq_len = 10 + (n_upper - k_lower)
     return {'train_loader': train_loader, 'val_loader': val_loader, 'feature_dim': feature_dim}
 
 
@@ -209,9 +208,9 @@ def train(datasets, num_epochs, learning_rate):
 
 
 def main():
-    df = joblib.load("results_subset_1M.pkl")
+    df = joblib.load("large_results_dataframe.pkl")
     datasets = create_dataset(df, 9, 10, 4, 6, 2)
-    train(datasets, num_epochs=50, learning_rate=.0001)
+    train(datasets, num_epochs=50, learning_rate=.0002)
 
 if __name__ == "__main__":
     main()
