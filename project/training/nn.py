@@ -36,33 +36,32 @@ def collate_pad(batch):
 
 class ResultsDataset(Dataset):
     def __init__(self, df):
-       
-        self.P = []
-        for raw_P, k, n in zip(df['P'], df['k'], df['n']):
-            arr = np.array(raw_P, dtype=np.float32).reshape((k, n - k))
-            P_seq = torch.from_numpy(arr.T).float()     
-            self.P.append(P_seq)
+        self.raw_P     = df['P'].tolist()
+        self.n_list    = df['n'].astype(int).tolist()
+        self.m_list    = df['m'].astype(int).tolist()
+        self.k_list    = df['k'].astype(int).tolist()
 
-        
-        self.targets = torch.tensor(
-            df['result'].values, dtype=torch.float32
-        ).unsqueeze(1)
-
-        # per-sample ints
-        self.n_list = df['n'].astype(int).tolist()
-        self.m_list = df['m'].astype(int).tolist()
-        self.k_list = df['k'].astype(int).tolist()
+        self.targets   = torch.tensor(
+                            df['result'].values, dtype=torch.float32
+                         ).unsqueeze(1)
 
     def __len__(self):
         return len(self.targets)
 
     def __getitem__(self, idx):
+        raw_P = self.raw_P[idx]
+        k     = self.k_list[idx]
+        n     = self.n_list[idx]
+
+        arr   = np.array(raw_P, dtype=np.float32).reshape((k, n - k))
+        P_seq = torch.from_numpy(arr.T).float()
+
         return (
-            self.P[idx],          # (n_i-k_i, k_i)
-            self.targets[idx],    # (1,)
-            self.n_list[idx],     # int
-            self.m_list[idx],     # int
-            self.k_list[idx]      # int
+            P_seq,                   
+            self.targets[idx],       
+            n,                      
+            self.m_list[idx],        
+            k                     
         )
     
 class Log2Loss(nn.Module):
@@ -137,14 +136,6 @@ class TransformerWithP(nn.Module):
        
 def create_dataset(df, n_lower, n_upper, k_lower, k_upper, m_lower):
     print("Creating datasets")
-
-    for idx, row in df.iterrows():
-        k = row["k"]
-        n = row["n"]
-        m = row["m"]
-        row_P = np.array(row["P"], dtype=np.float32).reshape((k, n - k))
-        x_dim = k
-
 
     dataset = ResultsDataset(df)
     train_idx, val_idx = train_test_split(list(range(len(dataset))),test_size=0.2, random_state=69)
